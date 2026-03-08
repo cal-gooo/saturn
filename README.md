@@ -98,6 +98,9 @@ sqlx migrate run
 cargo run --bin saturn-server
 ```
 
+To enable the real Lightning adapter, set `APP__LIGHTNING_BACKEND=ldk` and provide the LDK seed,
+storage path, and chain source settings in `.env`.
+
 5. Run tests:
 
 ```bash
@@ -119,6 +122,8 @@ export APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY=22222222222222222222222222222222
 ```
 
 Saturn keeps its request-signing key separate from the Nostr relay identity key in `.env`.
+For request signing, `sign-payload` will also read `APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY`
+directly from the environment.
 
 2. Create a quote request body:
 

@@ -3,12 +3,13 @@ use std::sync::Arc;
 use saturn::{
     app::{AppConfig, AppState, build_router},
     nostr::SdkNostrPublisher,
-    payments::{MockLightningAdapter, MockOnChainAdapter},
+    payments::{MockOnChainAdapter, build_lightning_adapter},
     persistence::{
         PostgresNonceRepository, PostgresOrderRepository, PostgresQuoteRepository,
         PostgresReceiptRepository, connect,
     },
 };
+use sqlx_core::migrate::Migrator;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -21,7 +22,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing(&config);
 
     let pool = connect(&config.database_url).await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    Migrator::new(std::path::Path::new("./migrations"))
+        .await?
+        .run(&pool)
+        .await?;
 
     let state = AppState::new(
         config.clone(),
@@ -29,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(PostgresOrderRepository::new(pool.clone())),
         Arc::new(PostgresReceiptRepository::new(pool.clone())),
         Arc::new(PostgresNonceRepository::new(pool)),
-        Arc::new(MockLightningAdapter),
+        build_lightning_adapter(&config)?,
         Arc::new(MockOnChainAdapter),
         Arc::new(SdkNostrPublisher::new(&config)?),
     );

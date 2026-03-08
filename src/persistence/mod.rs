@@ -7,7 +7,14 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{FromRow, PgPool, postgres::PgPoolOptions, query, query_as};
+use sqlx_core::{
+    error::Error as SqlxError,
+    from_row::FromRow,
+    query::query,
+    query_as::query_as,
+    row::Row,
+};
+use sqlx_postgres::{PgPool, PgPoolOptions, PgRow};
 use uuid::Uuid;
 
 use crate::{
@@ -229,7 +236,7 @@ struct QuotePayloadSnapshot {
     accepted_rails: Vec<PaymentRail>,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct QuoteRow {
     id: Uuid,
     order_id: Uuid,
@@ -244,7 +251,7 @@ struct QuoteRow {
     updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct OrderRow {
     id: Uuid,
     quote_id: Uuid,
@@ -265,7 +272,7 @@ struct OrderRow {
     updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct ReceiptRow {
     id: Uuid,
     order_id: Uuid,
@@ -274,6 +281,62 @@ struct ReceiptRow {
     nostr_event_id: Option<String>,
     receipt_payload: Value,
     created_at: DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, PgRow> for QuoteRow {
+    fn from_row(row: &'r PgRow) -> Result<Self, SqlxError> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            order_id: row.try_get("order_id")?,
+            buyer_pubkey: row.try_get("buyer_pubkey")?,
+            seller_pubkey: row.try_get("seller_pubkey")?,
+            quote_payload: row.try_get("quote_payload")?,
+            total_sats: row.try_get("total_sats")?,
+            status: row.try_get("status")?,
+            expires_at: row.try_get("expires_at")?,
+            quote_lock_until: row.try_get("quote_lock_until")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for OrderRow {
+    fn from_row(row: &'r PgRow) -> Result<Self, SqlxError> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            quote_id: row.try_get("quote_id")?,
+            buyer_pubkey: row.try_get("buyer_pubkey")?,
+            seller_pubkey: row.try_get("seller_pubkey")?,
+            state: row.try_get("state")?,
+            selected_rail: row.try_get("selected_rail")?,
+            checkout_idempotency_key: row.try_get("checkout_idempotency_key")?,
+            payment_confirm_idempotency_key: row.try_get("payment_confirm_idempotency_key")?,
+            lightning_invoice: row.try_get("lightning_invoice")?,
+            lightning_payment_hash: row.try_get("lightning_payment_hash")?,
+            onchain_address: row.try_get("onchain_address")?,
+            payment_amount_sats: row.try_get("payment_amount_sats")?,
+            settlement_proof: row.try_get("settlement_proof")?,
+            onchain_confirmations: row.try_get("onchain_confirmations")?,
+            last_error_code: row.try_get("last_error_code")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for ReceiptRow {
+    fn from_row(row: &'r PgRow) -> Result<Self, SqlxError> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            order_id: row.try_get("order_id")?,
+            rail: row.try_get("rail")?,
+            receipt_hash: row.try_get("receipt_hash")?,
+            nostr_event_id: row.try_get("nostr_event_id")?,
+            receipt_payload: row.try_get("receipt_payload")?,
+            created_at: row.try_get("created_at")?,
+        })
+    }
 }
 
 impl TryFrom<QuoteRow> for Quote {

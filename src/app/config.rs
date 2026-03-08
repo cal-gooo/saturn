@@ -12,6 +12,13 @@ pub struct AppConfig {
     pub merchant_nostr_pubkey: String,
     pub merchant_nostr_secret_key: String,
     pub merchant_request_signing_secret_key: String,
+    pub lightning_backend: String,
+    pub lightning_ldk_seed_hex: String,
+    pub lightning_ldk_storage_dir: String,
+    pub lightning_ldk_network: String,
+    pub lightning_ldk_esplora_url: String,
+    pub lightning_ldk_rgs_url: Option<String>,
+    pub lightning_invoice_expiry_seconds: u32,
     pub nostr_relays: Vec<String>,
     pub quote_ttl_seconds: u64,
     pub quote_lock_seconds: u64,
@@ -52,6 +59,28 @@ impl AppConfig {
             merchant_nostr_pubkey,
             merchant_nostr_secret_key,
             merchant_request_signing_secret_key,
+            lightning_backend: read_string("APP__LIGHTNING_BACKEND", "mock"),
+            lightning_ldk_seed_hex: read_string(
+                "APP__LIGHTNING_LDK_SEED_HEX",
+                "33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
+            ),
+            lightning_ldk_storage_dir: read_string(
+                "APP__LIGHTNING_LDK_STORAGE_DIR",
+                "./data/ldk",
+            ),
+            lightning_ldk_network: read_string("APP__LIGHTNING_LDK_NETWORK", "testnet"),
+            lightning_ldk_esplora_url: read_string(
+                "APP__LIGHTNING_LDK_ESPLORA_URL",
+                "https://blockstream.info/testnet/api",
+            ),
+            lightning_ldk_rgs_url: read_optional_string(
+                "APP__LIGHTNING_LDK_RGS_URL",
+                Some("https://rapidsync.lightningdevkit.org/testnet/snapshot"),
+            ),
+            lightning_invoice_expiry_seconds: read_parse(
+                "APP__LIGHTNING_INVOICE_EXPIRY_SECONDS",
+                900_u32,
+            )?,
             nostr_relays: read_string("APP__NOSTR_RELAYS", "wss://relay.damus.io,wss://nos.lol")
                 .split(',')
                 .map(str::trim)
@@ -82,6 +111,14 @@ impl AppConfig {
                 .expect("test merchant nostr pubkey should derive from secret key"),
             merchant_nostr_secret_key,
             merchant_request_signing_secret_key,
+            lightning_backend: "mock".into(),
+            lightning_ldk_seed_hex:
+                "33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333".into(),
+            lightning_ldk_storage_dir: "./data/ldk-tests".into(),
+            lightning_ldk_network: "regtest".into(),
+            lightning_ldk_esplora_url: "http://127.0.0.1:3002".into(),
+            lightning_ldk_rgs_url: None,
+            lightning_invoice_expiry_seconds: 900,
             nostr_relays: vec!["wss://relay.damus.io".into(), "wss://nos.lol".into()],
             quote_ttl_seconds: 300,
             quote_lock_seconds: 180,
@@ -94,6 +131,20 @@ impl AppConfig {
 
 fn read_string(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+fn read_optional_string(key: &str, default: Option<&str>) -> Option<String> {
+    match env::var(key) {
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_owned())
+            }
+        }
+        Err(_) => default.map(str::to_owned),
+    }
 }
 
 fn read_parse<T>(key: &str, default: T) -> AppResult<T>
