@@ -726,18 +726,35 @@ struct EsploraTransactionStatus {
 mod tests {
     use std::{env, net::TcpListener, str::FromStr, time::Duration};
 
+    use axum::{
+        Router,
+        body::Body,
+        http::{Method, Request},
+    };
     use chrono::{TimeZone, Utc};
     use electrsd::corepc_node::{self, Node as BitcoinD};
     use electrsd::ElectrsD;
+    use http_body_util::BodyExt;
     use ldk_node::{
         Builder as LdkNodeBuilder, Event,
         bitcoin::{Address, Amount, Network as BitcoinNetwork, Txid, address::NetworkUnchecked},
         lightning::ln::msgs::SocketAddress,
         lightning_invoice::Bolt11Invoice,
     };
+    use serde_json::{Value, json};
     use tokio::time::sleep;
+    use tower::util::ServiceExt;
 
     use super::*;
+    use crate::{
+        app::{AppState, build_router},
+        nostr::MockNostrPublisher,
+        persistence::{
+            InMemoryNonceRepository, InMemoryOrderRepository, InMemoryQuoteRepository,
+            InMemoryReceiptRepository,
+        },
+        security::signing::{derive_public_key, sign_value},
+    };
 
     fn sample_transaction(address: &str, value: u64, status: EsploraTransactionStatus) -> EsploraTransaction {
         EsploraTransaction {
@@ -990,6 +1007,175 @@ mod tests {
         }
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires downloaded bitcoind/electrs binaries and a live regtest environment"]
+    async fn saturn_router_completes_real_lightning_checkout() {
+        let (bitcoind, electrsd) = setup_bitcoind_and_electrsd();
+        let rpc = &bitcoind.client;
+        let _ = rpc.create_wallet("saturn_router_regtest");
+        let _ = rpc.load_wallet("saturn_router_regtest");
+        generate_blocks_and_wait(rpc, &electrsd, 101).await;
+
+        let esplora_url = format!(
+            "http://{}",
+            electrsd
+                .esplora_url
+                .as_ref()
+                .expect("electrsd should expose esplora")
+        );
+
+        let payer = build_test_ldk_node(&esplora_url, 61, None);
+        let receiver_handle = Arc::new(build_test_ldk_handle(
+            &esplora_url,
+            62,
+            Some(random_socket_address()),
+        ));
+        let payer_funding_address = payer
+            .onchain_payment()
+            .new_address()
+            .expect("payer funding address");
+        let payer_funding_txid = rpc
+            .send_to_address(&payer_funding_address, Amount::from_sat(1_000_000))
+            .expect("bitcoind should fund the payer")
+            .0
+            .parse::<Txid>()
+            .expect("funding txid should parse");
+        wait_for_esplora_tx(&esplora_url, &payer_funding_txid).await;
+        generate_blocks_and_wait(rpc, &electrsd, 1).await;
+        payer.sync_wallets().expect("payer wallets should sync");
+
+        payer
+            .open_channel(
+                receiver_handle.node.node_id(),
+                receiver_handle
+                    .node
+                    .listening_addresses()
+                    .expect("receiver should have listening addresses")
+                    .first()
+                    .expect("receiver should expose a listening address")
+                    .clone(),
+                500_000,
+                None,
+                None,
+            )
+            .expect("payer should open a private channel");
+
+        wait_for_event(&payer, |event| matches!(event, Event::ChannelPending { .. })).await;
+        wait_for_event(&receiver_handle.node, |event| {
+            matches!(event, Event::ChannelPending { .. })
+        })
+        .await;
+        generate_blocks_and_wait(rpc, &electrsd, 6).await;
+        payer.sync_wallets().expect("payer wallets should resync");
+        receiver_handle
+            .node
+            .sync_wallets()
+            .expect("receiver wallets should sync");
+        wait_for_event(&payer, |event| matches!(event, Event::ChannelReady { .. })).await;
+        wait_for_event(&receiver_handle.node, |event| {
+            matches!(event, Event::ChannelReady { .. })
+        })
+        .await;
+
+        let mut config = AppConfig::for_tests();
+        config.lightning_backend = "ldk".into();
+        config.onchain_backend = "mock".into();
+        config.lightning_ldk_network = "regtest".into();
+        config.lightning_ldk_esplora_url = esplora_url;
+        config.lightning_ldk_rgs_url = None;
+
+        let app = router_with_real_lightning(
+            config.clone(),
+            Arc::new(LdkNodeLightningAdapter::new(Arc::clone(&receiver_handle), 900)),
+        );
+        let seller_pubkey = test_public_key();
+        let buyer_pubkey =
+            "02cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_owned();
+
+        let quote_request = signed_envelope(json!({
+            "buyer_nostr_pubkey": buyer_pubkey,
+            "seller_nostr_pubkey": seller_pubkey,
+            "callback_relays": ["wss://relay.damus.io"],
+            "items": [
+                {
+                    "sku": "agent-plan",
+                    "description": "Autonomous procurement plan",
+                    "quantity": 1,
+                    "unit_price_sats": 21000
+                }
+            ],
+            "settlement_preference": "lightning_only",
+            "buyer_reference": "ldk-live-flow"
+        }));
+
+        let (quote_status, quote_body) =
+            json_request(app.clone(), Method::POST, "/quote", quote_request, None)
+                .await
+                .expect("quote request should succeed");
+        assert_eq!(quote_status, 200);
+
+        let quote_id = quote_body["quote_id"].as_str().expect("quote id");
+        let order_id = quote_body["order_id"].as_str().expect("order id");
+        let lightning_checkout = signed_envelope(json!({
+            "quote_id": quote_id,
+            "selected_rail": "lightning",
+            "buyer_reference": "buyer-order-live",
+            "return_relays": ["wss://nos.lol"]
+        }));
+
+        let (checkout_status, checkout_body) = json_request(
+            app.clone(),
+            Method::POST,
+            "/checkout-intent",
+            lightning_checkout,
+            Some("checkout-live-1"),
+        )
+        .await
+        .expect("checkout should succeed");
+        assert_eq!(checkout_status, 200);
+
+        let payment_hash = checkout_body["lightning_payment_hash"]
+            .as_str()
+            .expect("payment hash")
+            .to_owned();
+        let invoice = checkout_body["lightning_invoice"]
+            .as_str()
+            .expect("bolt11 invoice");
+        let parsed_invoice = Bolt11Invoice::from_str(invoice).expect("checkout invoice should parse");
+        payer
+            .bolt11_payment()
+            .send(&parsed_invoice, None)
+            .expect("payer should settle the checkout invoice");
+        wait_for_event(&payer, |event| matches!(event, Event::PaymentSuccessful { .. })).await;
+        wait_for_event(&receiver_handle.node, |event| {
+            matches!(event, Event::PaymentReceived { .. })
+        })
+        .await;
+
+        let (payment_status, payment_body) = wait_for_payment_confirmation(
+            app.clone(),
+            order_id,
+            &payment_hash,
+            21_000,
+        )
+        .await;
+        assert_eq!(payment_status, 200);
+        assert_eq!(payment_body["state"], "paid");
+
+        let (order_status, order_body) = json_request(
+            app,
+            Method::GET,
+            &format!("/order/{order_id}"),
+            Value::Null,
+            None,
+        )
+        .await
+        .expect("order lookup should succeed");
+        assert_eq!(order_status, 200);
+        assert_eq!(order_body["state"], "paid");
+        assert_eq!(order_body["quote_id"], quote_id);
+    }
+
     fn setup_bitcoind_and_electrsd() -> (BitcoinD, ElectrsD) {
         let bitcoind_exe = env::var("BITCOIND_EXE")
             .ok()
@@ -1175,5 +1361,132 @@ mod tests {
         }
 
         panic!("timed out waiting for settled lightning payment");
+    }
+
+    fn router_with_real_lightning(
+        config: AppConfig,
+        lightning_adapter: DynLightningAdapter,
+    ) -> Router {
+        let relays = config.nostr_relays.clone();
+        build_router(AppState::new(
+            config,
+            Arc::new(InMemoryQuoteRepository::default()),
+            Arc::new(InMemoryOrderRepository::default()),
+            Arc::new(InMemoryReceiptRepository::default()),
+            Arc::new(InMemoryNonceRepository::default()),
+            lightning_adapter,
+            Arc::new(MockOnChainAdapter),
+            Arc::new(MockNostrPublisher::new(relays)),
+        ))
+    }
+
+    fn test_secret_key() -> &'static str {
+        "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+
+    fn test_public_key() -> String {
+        derive_public_key(test_secret_key()).expect("public key derivation should work")
+    }
+
+    fn signed_envelope(payload: Value) -> Value {
+        let mut object = payload
+            .as_object()
+            .cloned()
+            .expect("payload must be an object");
+        object.insert("message_id".into(), json!(Uuid::new_v4()));
+        object.insert("timestamp".into(), json!(Utc::now()));
+        object.insert("nonce".into(), json!(format!("nonce-{}", Uuid::new_v4())));
+        object.insert("public_key".into(), json!(test_public_key()));
+        object.insert("signature".into(), json!(""));
+        signed_payload(Value::Object(object))
+    }
+
+    fn signed_payload(mut payload: Value) -> Value {
+        payload["public_key"] = Value::String(test_public_key());
+        payload["signature"] = Value::String(String::new());
+        sign_value(&mut payload, test_secret_key()).expect("payload signing should work");
+        payload
+    }
+
+    async fn json_request(
+        app: Router,
+        method: Method,
+        path: &str,
+        body: Value,
+        idempotency_key: Option<&str>,
+    ) -> AppResult<(u16, Value)> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", "application/json");
+        if let Some(idempotency_key) = idempotency_key {
+            builder = builder.header("Idempotency-Key", idempotency_key);
+        }
+
+        let response = app
+            .oneshot(
+                builder
+                    .body(Body::from(body.to_string()))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        let status = response.status().as_u16();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body should collect")
+            .to_bytes();
+        let value = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).expect("response should be valid json")
+        };
+        Ok((status, value))
+    }
+
+    async fn wait_for_payment_confirmation(
+        app: Router,
+        order_id: &str,
+        payment_hash: &str,
+        amount_sats: i64,
+    ) -> (u16, Value) {
+        for _ in 0..120 {
+            let envelope = signed_envelope(json!({
+                "order_id": order_id,
+                "rail": "lightning",
+                "settlement_proof": {
+                    "type": "lightning",
+                    "payment_hash": payment_hash,
+                    "preimage": Value::Null,
+                    "settled_at": Utc::now(),
+                    "amount_sats": amount_sats
+                }
+            }));
+
+            let (status, body) = json_request(
+                app.clone(),
+                Method::POST,
+                "/payment/confirm",
+                envelope,
+                Some("payment-live-1"),
+            )
+            .await
+            .expect("payment confirm request should complete");
+            if status == 200 {
+                return (status, body);
+            }
+
+            let message = body["error"]["message"].as_str().unwrap_or_default();
+            if message.contains("still pending") || message.contains("has no record") {
+                sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+
+            panic!("unexpected payment confirmation failure: {body}");
+        }
+
+        panic!("timed out waiting for payment confirmation to succeed");
     }
 }
