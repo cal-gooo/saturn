@@ -724,7 +724,18 @@ struct EsploraTransactionStatus {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
+    use std::{env, net::TcpListener, str::FromStr, time::Duration};
+
+    use chrono::{TimeZone, Utc};
+    use electrsd::corepc_node::{self, Node as BitcoinD};
+    use electrsd::ElectrsD;
+    use ldk_node::{
+        Builder as LdkNodeBuilder, Event,
+        bitcoin::{Address, Amount, Network as BitcoinNetwork, Txid, address::NetworkUnchecked},
+        lightning::ln::msgs::SocketAddress,
+        lightning_invoice::Bolt11Invoice,
+    };
+    use tokio::time::sleep;
 
     use super::*;
 
@@ -860,5 +871,309 @@ mod tests {
                 confirmations: 0,
             }
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires downloaded bitcoind/electrs binaries and a live regtest environment"]
+    async fn ldk_lightning_adapter_round_trips_real_payment() {
+        let (bitcoind, electrsd) = setup_bitcoind_and_electrsd();
+        let rpc = &bitcoind.client;
+        let _ = rpc.create_wallet("saturn_lightning_regtest");
+        let _ = rpc.load_wallet("saturn_lightning_regtest");
+        generate_blocks_and_wait(rpc, &electrsd, 101).await;
+
+        let esplora_url = format!(
+            "http://{}",
+            electrsd
+                .esplora_url
+                .as_ref()
+                .expect("electrsd should expose esplora")
+        );
+
+        let payer = build_test_ldk_node(&esplora_url, 41, None);
+        let receiver_handle = Arc::new(build_test_ldk_handle(
+            &esplora_url,
+            42,
+            Some(random_socket_address()),
+        ));
+        let receiver_adapter = LdkNodeLightningAdapter::new(Arc::clone(&receiver_handle), 900);
+
+        let payer_funding_address = payer
+            .onchain_payment()
+            .new_address()
+            .expect("payer funding address");
+        let payer_funding_txid = rpc
+            .send_to_address(&payer_funding_address, Amount::from_sat(1_000_000))
+            .expect("bitcoind should fund the payer")
+            .0
+            .parse::<Txid>()
+            .expect("funding txid should parse");
+        wait_for_esplora_tx(&esplora_url, &payer_funding_txid).await;
+        generate_blocks_and_wait(rpc, &electrsd, 1).await;
+        payer.sync_wallets().expect("payer wallets should sync");
+
+        payer
+            .open_channel(
+                receiver_handle.node.node_id(),
+                receiver_handle
+                    .node
+                    .listening_addresses()
+                    .expect("receiver should have listening addresses")
+                    .first()
+                    .expect("receiver should expose one address")
+                    .clone(),
+                500_000,
+                None,
+                None,
+            )
+            .expect("payer should open a private channel");
+
+        wait_for_event(&payer, |event| matches!(event, Event::ChannelPending { .. })).await;
+        wait_for_event(&receiver_handle.node, |event| {
+            matches!(event, Event::ChannelPending { .. })
+        })
+        .await;
+        generate_blocks_and_wait(rpc, &electrsd, 6).await;
+        payer.sync_wallets().expect("payer wallets should resync");
+        receiver_handle
+            .node
+            .sync_wallets()
+            .expect("receiver wallets should sync");
+        wait_for_event(&payer, |event| matches!(event, Event::ChannelReady { .. })).await;
+        wait_for_event(&receiver_handle.node, |event| {
+            matches!(event, Event::ChannelReady { .. })
+        })
+        .await;
+
+        let invoice = receiver_adapter
+            .create_invoice(Uuid::new_v4(), 21_000, "saturn regtest lightning")
+            .await
+            .expect("receiver should create a real invoice");
+        let parsed_invoice = Bolt11Invoice::from_str(&invoice.bolt11).expect("invoice should parse");
+        payer
+            .bolt11_payment()
+            .send(&parsed_invoice, None)
+            .expect("payer should send invoice");
+        wait_for_event(&payer, |event| matches!(event, Event::PaymentSuccessful { .. })).await;
+        wait_for_event(&receiver_handle.node, |event| {
+            matches!(event, Event::PaymentReceived { .. })
+        })
+        .await;
+
+        let proof = SettlementProof::Lightning {
+            payment_hash: invoice.payment_hash.clone(),
+            preimage: None,
+            settled_at: Utc::now(),
+            amount_sats: 21_000,
+        };
+        let verification = wait_for_lightning_verification(
+            &receiver_adapter,
+            &proof,
+            Some(invoice.payment_hash.as_str()),
+            21_000,
+        )
+        .await;
+
+        assert_eq!(verification.finality, PaymentFinality::Settled);
+        match verification.normalized_proof {
+            SettlementProof::Lightning {
+                payment_hash,
+                preimage,
+                amount_sats,
+                ..
+            } => {
+                assert_eq!(payment_hash, invoice.payment_hash);
+                assert_eq!(amount_sats, 21_000);
+                assert!(preimage.is_some(), "ldk-node should expose a settled preimage");
+            }
+            other => panic!("expected normalized lightning proof, got {other:?}"),
+        }
+    }
+
+    fn setup_bitcoind_and_electrsd() -> (BitcoinD, ElectrsD) {
+        let bitcoind_exe = env::var("BITCOIND_EXE")
+            .ok()
+            .or_else(|| corepc_node::downloaded_exe_path().ok())
+            .expect("set BITCOIND_EXE or enable corepc-node downloads");
+        let mut bitcoind_conf = corepc_node::Conf::default();
+        bitcoind_conf.network = "regtest";
+        bitcoind_conf.args.push("-rest");
+        let bitcoind = BitcoinD::with_conf(bitcoind_exe, &bitcoind_conf)
+            .expect("bitcoind should start for regtest");
+
+        let electrs_exe = env::var("ELECTRS_EXE")
+            .ok()
+            .or_else(electrsd::downloaded_exe_path)
+            .expect("set ELECTRS_EXE or enable electrsd downloads");
+        let mut electrsd_conf = electrsd::Conf::default();
+        electrsd_conf.http_enabled = true;
+        electrsd_conf.network = "regtest";
+        let electrsd = ElectrsD::with_conf(electrs_exe, &bitcoind, &electrsd_conf)
+            .expect("electrsd should start for regtest");
+
+        (bitcoind, electrsd)
+    }
+
+    fn build_test_ldk_node(
+        esplora_url: &str,
+        seed_byte: u8,
+        listening_address: Option<SocketAddress>,
+    ) -> LdkNode {
+        let node = build_test_ldk_builder(esplora_url, seed_byte, listening_address)
+            .build()
+            .expect("test ldk node should build");
+        node.start().expect("test ldk node should start");
+        node
+    }
+
+    fn build_test_ldk_handle(
+        esplora_url: &str,
+        seed_byte: u8,
+        listening_address: Option<SocketAddress>,
+    ) -> LdkNodeHandle {
+        let node = build_test_ldk_builder(esplora_url, seed_byte, listening_address)
+            .build()
+            .expect("test ldk handle should build");
+        node.start().expect("test ldk handle should start");
+        LdkNodeHandle { node }
+    }
+
+    fn build_test_ldk_builder(
+        esplora_url: &str,
+        seed_byte: u8,
+        listening_address: Option<SocketAddress>,
+    ) -> LdkNodeBuilder {
+        let mut builder = LdkNodeBuilder::new();
+        builder.set_network(BitcoinNetwork::Regtest);
+        builder.set_entropy_seed_bytes([seed_byte; WALLET_KEYS_SEED_LEN]);
+        builder.set_storage_dir_path(
+            env::temp_dir()
+                .join(format!("saturn-ldk-lightning-{}-{}", seed_byte, Uuid::new_v4()))
+                .display()
+                .to_string(),
+        );
+        builder.set_chain_source_esplora(esplora_url.to_owned(), None);
+        if let Some(listening_address) = listening_address {
+            builder
+                .set_listening_addresses(vec![listening_address])
+                .expect("listening address should be valid");
+        }
+        builder.set_log_facade_logger();
+        builder
+    }
+
+    fn random_socket_address() -> SocketAddress {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("ephemeral listener");
+        let address = listener.local_addr().expect("local addr");
+        drop(listener);
+        SocketAddress::from_str(&address.to_string()).expect("socket address should parse")
+    }
+
+    async fn generate_blocks_and_wait(
+        rpc: &corepc_node::Client,
+        electrsd: &ElectrsD,
+        blocks: usize,
+    ) {
+        let start_height = rpc
+            .get_blockchain_info()
+            .expect("blockchain info should be available")
+            .blocks as u32;
+        let address = rpc
+            .get_new_address(None, None)
+            .expect("wallet address")
+            .0
+            .parse::<Address<NetworkUnchecked>>()
+            .expect("mining address should parse")
+            .assume_checked();
+        rpc.generate_to_address(blocks, &address)
+            .expect("regtest blocks should mine");
+
+        let esplora_base_url = format!(
+            "http://{}",
+            electrsd
+                .esplora_url
+                .as_ref()
+                .expect("electrsd should expose esplora")
+        );
+        wait_for_tip_height(&esplora_base_url, start_height.saturating_add(blocks as u32)).await;
+    }
+
+    async fn wait_for_tip_height(esplora_base_url: &str, target_height: u32) {
+        let client = reqwest::Client::new();
+        let url = format!("{}/blocks/tip/height", esplora_base_url);
+
+        for _ in 0..120 {
+            let response = client
+                .get(&url)
+                .send()
+                .await
+                .expect("tip height poll should succeed");
+            let height: u32 = response
+                .text()
+                .await
+                .expect("tip height body should be readable")
+                .trim()
+                .parse()
+                .expect("tip height should parse");
+            if height >= target_height {
+                return;
+            }
+            sleep(Duration::from_millis(250)).await;
+        }
+
+        panic!("timed out waiting for esplora tip height to reach {target_height}");
+    }
+
+    async fn wait_for_esplora_tx(esplora_base_url: &str, txid: &Txid) {
+        let client = reqwest::Client::new();
+        let url = format!("{}/tx/{txid}", esplora_base_url);
+
+        for _ in 0..120 {
+            let response = client.get(&url).send().await.expect("tx poll should succeed");
+            if response.status() == reqwest::StatusCode::OK {
+                return;
+            }
+            sleep(Duration::from_millis(250)).await;
+        }
+
+        panic!("timed out waiting for esplora to index transaction {txid}");
+    }
+
+    async fn wait_for_event<F>(node: &LdkNode, matcher: F)
+    where
+        F: Fn(&Event) -> bool,
+    {
+        for _ in 0..120 {
+            let event = node.next_event_async().await;
+            if matcher(&event) {
+                node.event_handled().expect("event should be acknowledged");
+                return;
+            }
+            node.event_handled().expect("event should be acknowledged");
+        }
+
+        panic!("timed out waiting for expected LDK event");
+    }
+
+    async fn wait_for_lightning_verification(
+        adapter: &LdkNodeLightningAdapter,
+        proof: &SettlementProof,
+        expected_hash: Option<&str>,
+        expected_amount_sats: i64,
+    ) -> PaymentVerification {
+        for _ in 0..120 {
+            match adapter
+                .verify_payment(proof, expected_hash, expected_amount_sats)
+                .await
+            {
+                Ok(verification) => return verification,
+                Err(error) if error.message.contains("still pending") => {
+                    sleep(Duration::from_millis(250)).await;
+                }
+                Err(error) => panic!("lightning verification should succeed: {}", error.message),
+            }
+        }
+
+        panic!("timed out waiting for settled lightning payment");
     }
 }
