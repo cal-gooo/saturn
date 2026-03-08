@@ -1,0 +1,14 @@
+{
+  "name": "saturn-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run website:build",
+    "dev": "npm run website:dev",
+    "website:dev": "npm run dev --workspace @saturn/website",
+    "website:build": "npm run build --workspace @saturn/website",
+    "website:preview": "npm run preview --workspace @saturn/website"
+  }
+}

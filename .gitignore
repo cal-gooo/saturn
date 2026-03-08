@@ -2,4 +2,7 @@
 /.env
 /.sqlx
 Cargo.lock
-
+node_modules/
+apps/website/dist/
+.vercel/
+apps/website/.vercel/

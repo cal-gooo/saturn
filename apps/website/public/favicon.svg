@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Saturn">
+  <defs>
+    <linearGradient id="planet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd8a8"/>
+      <stop offset="100%" stop-color="#ff9f43"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#fff7e6" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#fff7e6"/>
+      <stop offset="100%" stop-color="#fff7e6" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#09111f"/>
+  <ellipse cx="64" cy="70" rx="47" ry="13" fill="none" stroke="url(#ring)" stroke-width="8"/>
+  <circle cx="64" cy="58" r="28" fill="url(#planet)"/>
+  <circle cx="76" cy="46" r="5" fill="#fff7e6" fill-opacity="0.7"/>
+</svg>

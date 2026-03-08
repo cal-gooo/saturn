@@ -22,6 +22,14 @@ Saturn is the Rust reference implementation for A2A Commerce Protocol: BTC-only 
 ├── LICENSE
 ├── README.md
 ├── docker-compose.yml
+├── apps
+│   └── website
+│       ├── docs
+│       ├── public
+│       ├── src
+│       ├── index.html
+│       ├── package.json
+│       └── vite.config.js
 ├── docs
 │   ├── nostr-events.md
 │   ├── protocol-spec.md
@@ -32,6 +40,7 @@ Saturn is the Rust reference implementation for A2A Commerce Protocol: BTC-only 
 │       └── status-update-event.json
 ├── migrations
 │   └── 0001_init.sql
+├── package.json
 ├── src
 │   ├── api
 │   ├── app
@@ -99,6 +108,16 @@ sqlx migrate run
 cargo run --bin saturn-server
 ```
 
+4a. Run the official website from the monorepo:
+
+```bash
+npm install
+npm run website:dev
+```
+
+The Svelte + Vite site lives in `apps/website`. The landing page is at `/` and the docs
+landing page is at `/docs/`.
+
 To enable the real LDK-backed adapters, set `APP__LIGHTNING_BACKEND=ldk` and/or
 `APP__ONCHAIN_BACKEND=ldk`, then provide the shared LDK seed, storage path, and chain source
 settings in `.env`.
@@ -130,6 +149,7 @@ Expected sidecar payload:
 
 ```bash
 cargo test
+npm run website:build
 ```
 
 For the live LDK regtest path, there are also ignored tests that boot bitcoind and electrs
