@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a defect in the protocol draft, server behavior, or payment flow.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the bug clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: List the exact steps, request payloads, and expected versus actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Rust version, OS, relay assumptions, and whether Postgres or in-memory storage was used.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Explain whether this affects protocol safety, payment correctness, privacy, or availability.
+

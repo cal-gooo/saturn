@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a protocol enhancement or implementation improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the feature and the problem it solves.
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: Protocol impact
+      description: Explain whether this changes the wire format, state machine, Nostr events, or payment adapter interface.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List any alternatives and why they were rejected.
+
