@@ -108,6 +108,13 @@ settings in `.env`.
 cargo test
 ```
 
+For the live LDK regtest path, there is also an ignored integration test that boots bitcoind and
+electrs locally and verifies real on-chain settlement:
+
+```bash
+cargo test --test ldk_regtest -- --ignored --nocapture
+```
+
 If `cargo` is not on your shell `PATH`, use:
 
 ```bash
