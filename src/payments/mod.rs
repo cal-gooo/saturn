@@ -397,16 +397,17 @@ impl OnChainAdapter for LdkNodeOnChainAdapter {
         } else {
             None
         };
-        verify_onchain_transaction(
-            &txid.to_string(),
+        let txid_hex = txid.to_string();
+        verify_onchain_transaction(VerifyOnchainTransactionInput {
+            txid: &txid_hex,
             vout,
             expected_address,
             expected_amount_sats,
             minimum_confirmations,
-            &transaction,
+            transaction: &transaction,
             tip_height,
-            Utc::now(),
-        )
+            observed_at: Utc::now(),
+        })
     }
 }
 
@@ -594,25 +595,35 @@ pub fn build_receipt_payload(
     })
 }
 
-fn verify_onchain_transaction(
-    txid: &str,
+struct VerifyOnchainTransactionInput<'a> {
+    txid: &'a str,
     vout: u32,
-    expected_address: &str,
+    expected_address: &'a str,
     expected_amount_sats: i64,
     minimum_confirmations: u32,
-    transaction: &EsploraTransaction,
+    transaction: &'a EsploraTransaction,
     tip_height: Option<u32>,
     observed_at: DateTime<Utc>,
+}
+
+fn verify_onchain_transaction(
+    input: VerifyOnchainTransactionInput<'_>,
 ) -> AppResult<PaymentVerification> {
-    let output = transaction.vout.get(vout as usize).ok_or_else(|| {
-        ApiError::payment_verification_failed("on-chain transaction output index is out of range")
-    })?;
+    let output = input
+        .transaction
+        .vout
+        .get(input.vout as usize)
+        .ok_or_else(|| {
+            ApiError::payment_verification_failed(
+                "on-chain transaction output index is out of range",
+            )
+        })?;
     let output_address = output.scriptpubkey_address.as_deref().ok_or_else(|| {
         ApiError::payment_verification_failed(
             "on-chain transaction output is missing a standard address",
         )
     })?;
-    if output_address != expected_address {
+    if output_address != input.expected_address {
         return Err(ApiError::payment_verification_failed(
             "on-chain transaction output does not match the order address",
         ));
@@ -620,19 +631,23 @@ fn verify_onchain_transaction(
 
     let output_value_sats = i64::try_from(output.value)
         .map_err(|_| ApiError::payment_verification_failed("invalid on-chain output amount"))?;
-    if output_value_sats != expected_amount_sats {
+    if output_value_sats != input.expected_amount_sats {
         return Err(ApiError::payment_verification_failed(
             "on-chain transaction output amount does not match quote",
         ));
     }
 
-    let confirmations = confirmation_count(&transaction.status, tip_height.unwrap_or_default())?;
-    let settled_at = transaction
+    let confirmations = confirmation_count(
+        &input.transaction.status,
+        input.tip_height.unwrap_or_default(),
+    )?;
+    let settled_at = input
+        .transaction
         .status
         .block_time
         .and_then(|timestamp| DateTime::<Utc>::from_timestamp(timestamp, 0))
-        .unwrap_or(observed_at);
-    let finality = if confirmations >= minimum_confirmations {
+        .unwrap_or(input.observed_at);
+    let finality = if confirmations >= input.minimum_confirmations {
         PaymentFinality::Confirmed
     } else {
         PaymentFinality::Pending
@@ -642,9 +657,9 @@ fn verify_onchain_transaction(
         finality,
         settled_at,
         normalized_proof: SettlementProof::OnChain {
-            txid: txid.to_owned(),
-            vout,
-            amount_sats: expected_amount_sats,
+            txid: input.txid.to_owned(),
+            vout: input.vout,
+            amount_sats: input.expected_amount_sats,
             confirmations,
         },
     })
@@ -827,16 +842,17 @@ mod tests {
             },
         );
 
-        let error = verify_onchain_transaction(
-            "00".repeat(32).as_str(),
-            0,
-            "bcrt1qdifferent0000000000000000000000000000000",
-            21_000,
-            3,
-            &transaction,
-            Some(102),
-            Utc::now(),
-        )
+        let txid = "00".repeat(32);
+        let error = verify_onchain_transaction(VerifyOnchainTransactionInput {
+            txid: &txid,
+            vout: 0,
+            expected_address: "bcrt1qdifferent0000000000000000000000000000000",
+            expected_amount_sats: 21_000,
+            minimum_confirmations: 3,
+            transaction: &transaction,
+            tip_height: Some(102),
+            observed_at: Utc::now(),
+        })
         .expect_err("address mismatch should fail");
 
         assert!(error.message.contains("does not match the order address"));
@@ -854,18 +870,20 @@ mod tests {
             },
         );
 
-        let verification = verify_onchain_transaction(
-            &"11".repeat(32),
-            0,
-            "bcrt1qexpected000000000000000000000000000000000",
-            21_000,
-            3,
-            &transaction,
-            Some(102),
-            Utc.timestamp_opt(1_700_000_100, 0)
+        let txid = "11".repeat(32);
+        let verification = verify_onchain_transaction(VerifyOnchainTransactionInput {
+            txid: &txid,
+            vout: 0,
+            expected_address: "bcrt1qexpected000000000000000000000000000000000",
+            expected_amount_sats: 21_000,
+            minimum_confirmations: 3,
+            transaction: &transaction,
+            tip_height: Some(102),
+            observed_at: Utc
+                .timestamp_opt(1_700_000_100, 0)
                 .single()
                 .expect("timestamp"),
-        )
+        })
         .expect("confirmed transaction should verify");
 
         assert_eq!(verification.finality, PaymentFinality::Confirmed);
@@ -902,16 +920,17 @@ mod tests {
             },
         );
 
-        let verification = verify_onchain_transaction(
-            &"22".repeat(32),
-            0,
-            "bcrt1qexpected000000000000000000000000000000000",
-            21_000,
-            1,
-            &transaction,
-            None,
+        let txid = "22".repeat(32);
+        let verification = verify_onchain_transaction(VerifyOnchainTransactionInput {
+            txid: &txid,
+            vout: 0,
+            expected_address: "bcrt1qexpected000000000000000000000000000000000",
+            expected_amount_sats: 21_000,
+            minimum_confirmations: 1,
+            transaction: &transaction,
+            tip_height: None,
             observed_at,
-        )
+        })
         .expect("unconfirmed transaction should still normalize");
 
         assert_eq!(verification.finality, PaymentFinality::Pending);
