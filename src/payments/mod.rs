@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use ldk_node::{
     Builder as LdkNodeBuilder, Node as LdkNode,
-    bitcoin::{Network as BitcoinNetwork, hashes::Hash as _},
+    bitcoin::{Network as BitcoinNetwork, Txid, hashes::Hash as _},
     config::WALLET_KEYS_SEED_LEN,
     lightning::ln::channelmanager::PaymentId as LdkPaymentId,
     lightning_invoice::{Bolt11InvoiceDescription, Description},
@@ -13,6 +13,8 @@ use ldk_node::{
         PaymentStatus as LdkPaymentStatus,
     },
 };
+use reqwest::{Client as HttpClient, StatusCode as HttpStatusCode};
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::task;
@@ -39,13 +41,12 @@ pub struct PaymentVerification {
     pub normalized_proof: SettlementProof,
 }
 
-pub struct LdkNodeLightningAdapter {
-    node: Arc<LdkNode>,
-    invoice_expiry_seconds: u32,
+struct LdkNodeHandle {
+    node: LdkNode,
 }
 
-impl LdkNodeLightningAdapter {
-    pub fn new(config: &AppConfig) -> AppResult<Self> {
+impl LdkNodeHandle {
+    fn new(config: &AppConfig) -> AppResult<Self> {
         let mut builder = LdkNodeBuilder::new();
         builder.set_network(parse_ldk_network(&config.lightning_ldk_network)?);
         builder.set_entropy_seed_bytes(parse_ldk_seed_hex(&config.lightning_ldk_seed_hex)?);
@@ -56,9 +57,9 @@ impl LdkNodeLightningAdapter {
         }
         builder.set_log_facade_logger();
 
-        let node = Arc::new(builder.build().map_err(|error| {
+        let node = builder.build().map_err(|error| {
             ApiError::internal(format!("failed to build ldk-node adapter: {error}"))
-        })?);
+        })?;
         node.start().map_err(|error| {
             ApiError::internal(format!("failed to start ldk-node adapter: {error}"))
         })?;
@@ -67,20 +68,83 @@ impl LdkNodeLightningAdapter {
             backend = "ldk-node",
             network = %config.lightning_ldk_network,
             storage_dir = %config.lightning_ldk_storage_dir,
-            "started lightning adapter"
+            "started ldk-node runtime"
         );
 
-        Ok(Self {
-            node,
-            invoice_expiry_seconds: config.lightning_invoice_expiry_seconds,
+        Ok(Self { node })
+    }
+}
+
+impl Drop for LdkNodeHandle {
+    fn drop(&mut self) {
+        let _ = self.node.stop();
+    }
+}
+
+pub struct LdkNodeLightningAdapter {
+    handle: Arc<LdkNodeHandle>,
+    invoice_expiry_seconds: u32,
+}
+
+impl LdkNodeLightningAdapter {
+    fn new(handle: Arc<LdkNodeHandle>, invoice_expiry_seconds: u32) -> Self {
+        Self {
+            handle,
+            invoice_expiry_seconds,
+        }
+    }
+}
+
+impl LdkNodeOnChainAdapter {
+    fn new(handle: Arc<LdkNodeHandle>, esplora_base_url: String) -> Self {
+        Self {
+            handle,
+            esplora_client: HttpClient::new(),
+            esplora_base_url: normalize_esplora_base_url(&esplora_base_url),
+        }
+    }
+
+    async fn fetch_transaction(&self, txid: &Txid) -> AppResult<EsploraTransaction> {
+        let url = format!("{}/tx/{txid}", self.esplora_base_url);
+        let response = self.esplora_client.get(&url).send().await.map_err(|error| {
+            ApiError::internal(format!("failed to query esplora transaction: {error}"))
+        })?;
+
+        if response.status() == HttpStatusCode::NOT_FOUND {
+            return Err(ApiError::payment_verification_failed(
+                "on-chain transaction was not found in the configured Esplora backend",
+            ));
+        }
+
+        response.error_for_status_ref().map_err(|error| {
+            ApiError::internal(format!("esplora transaction query failed: {error}"))
+        })?;
+        response.json().await.map_err(|error| {
+            ApiError::internal(format!("failed to decode esplora transaction response: {error}"))
+        })
+    }
+
+    async fn fetch_tip_height(&self) -> AppResult<u32> {
+        let url = format!("{}/blocks/tip/height", self.esplora_base_url);
+        let response = self.esplora_client.get(&url).send().await.map_err(|error| {
+            ApiError::internal(format!("failed to query esplora tip height: {error}"))
+        })?;
+        response.error_for_status_ref().map_err(|error| {
+            ApiError::internal(format!("esplora tip height query failed: {error}"))
+        })?;
+        let height = response.text().await.map_err(|error| {
+            ApiError::internal(format!("failed to read esplora tip height response: {error}"))
+        })?;
+        height.trim().parse().map_err(|error| {
+            ApiError::internal(format!("invalid esplora tip height response: {error}"))
         })
     }
 }
 
-impl Drop for LdkNodeLightningAdapter {
-    fn drop(&mut self) {
-        let _ = self.node.stop();
-    }
+pub struct LdkNodeOnChainAdapter {
+    handle: Arc<LdkNodeHandle>,
+    esplora_client: HttpClient,
+    esplora_base_url: String,
 }
 
 #[async_trait]
@@ -119,7 +183,7 @@ impl LightningAdapter for LdkNodeLightningAdapter {
             .saturating_mul(1_000);
         let memo = memo.to_owned();
         let invoice_expiry_seconds = self.invoice_expiry_seconds;
-        let node = Arc::clone(&self.node);
+        let handle = Arc::clone(&self.handle);
 
         task::spawn_blocking(move || -> AppResult<LightningInvoice> {
             let description = Bolt11InvoiceDescription::Direct(
@@ -127,7 +191,8 @@ impl LightningAdapter for LdkNodeLightningAdapter {
                     ApiError::internal(format!("invalid lightning invoice description: {error}"))
                 })?,
             );
-            let invoice = node
+            let invoice = handle
+                .node
                 .bolt11_payment()
                 .receive(amount_msat, &description, invoice_expiry_seconds)
                 .map_err(|error| {
@@ -179,10 +244,11 @@ impl LightningAdapter for LdkNodeLightningAdapter {
         }
 
         let payment_hash_bytes = decode_payment_hash(&payment_hash)?;
-        let node = Arc::clone(&self.node);
+        let handle = Arc::clone(&self.handle);
 
         task::spawn_blocking(move || -> AppResult<PaymentVerification> {
-            let payment = node
+            let payment = handle
+                .node
                 .payment(&LdkPaymentId(payment_hash_bytes))
                 .ok_or_else(|| {
                     ApiError::payment_verification_failed(
@@ -253,9 +319,124 @@ pub trait OnChainAdapter: Send + Sync {
     async fn verify_settlement(
         &self,
         proof: &SettlementProof,
+        expected_address: &str,
         expected_amount_sats: i64,
         minimum_confirmations: u32,
     ) -> AppResult<PaymentVerification>;
+}
+
+#[async_trait]
+impl OnChainAdapter for LdkNodeOnChainAdapter {
+    async fn new_address(&self, _order_id: Uuid) -> AppResult<String> {
+        let handle = Arc::clone(&self.handle);
+        task::spawn_blocking(move || {
+            handle
+                .node
+                .onchain_payment()
+                .new_address()
+                .map(|address| address.to_string())
+                .map_err(|error| {
+                    ApiError::internal(format!("ldk-node failed to derive on-chain address: {error}"))
+                })
+        })
+        .await
+        .map_err(|error| ApiError::internal(format!("on-chain task failed: {error}")))?
+    }
+
+    async fn verify_settlement(
+        &self,
+        proof: &SettlementProof,
+        expected_address: &str,
+        expected_amount_sats: i64,
+        minimum_confirmations: u32,
+    ) -> AppResult<PaymentVerification> {
+        let (txid, vout, amount_sats) = match proof {
+            SettlementProof::OnChain {
+                txid,
+                vout,
+                amount_sats,
+                ..
+            } => (parse_onchain_txid(txid)?, *vout, *amount_sats),
+            _ => {
+                return Err(ApiError::payment_verification_failed(
+                    "on-chain adapter received non-on-chain proof",
+                ));
+            }
+        };
+
+        if amount_sats != expected_amount_sats {
+            return Err(ApiError::payment_verification_failed(
+                "on-chain amount does not match quote",
+            ));
+        }
+
+        let transaction = self.fetch_transaction(&txid).await?;
+        let output = transaction.vout.get(vout as usize).ok_or_else(|| {
+            ApiError::payment_verification_failed(
+                "on-chain transaction output index is out of range",
+            )
+        })?;
+        let output_address = output.scriptpubkey_address.as_deref().ok_or_else(|| {
+            ApiError::payment_verification_failed(
+                "on-chain transaction output is missing a standard address",
+            )
+        })?;
+        if output_address != expected_address {
+            return Err(ApiError::payment_verification_failed(
+                "on-chain transaction output does not match the order address",
+            ));
+        }
+
+        let output_value_sats = i64::try_from(output.value)
+            .map_err(|_| ApiError::payment_verification_failed("invalid on-chain output amount"))?;
+        if output_value_sats != expected_amount_sats {
+            return Err(ApiError::payment_verification_failed(
+                "on-chain transaction output amount does not match quote",
+            ));
+        }
+
+        let confirmations = match transaction.status {
+            EsploraTransactionStatus {
+                confirmed: true,
+                block_height: Some(block_height),
+                ..
+            } => {
+                let tip_height = self.fetch_tip_height().await?;
+                tip_height.saturating_sub(block_height).saturating_add(1)
+            }
+            EsploraTransactionStatus {
+                confirmed: true,
+                block_height: None,
+                ..
+            } => {
+                return Err(ApiError::internal(
+                    "esplora marked transaction confirmed without a block height",
+                ));
+            }
+            _ => 0,
+        };
+        let settled_at = transaction
+            .status
+            .block_time
+            .and_then(|timestamp| DateTime::<Utc>::from_timestamp(timestamp, 0))
+            .unwrap_or_else(Utc::now);
+        let finality = if confirmations >= minimum_confirmations {
+            PaymentFinality::Confirmed
+        } else {
+            PaymentFinality::Pending
+        };
+
+        Ok(PaymentVerification {
+            finality,
+            settled_at,
+            normalized_proof: SettlementProof::OnChain {
+                txid: txid.to_string(),
+                vout,
+                amount_sats: expected_amount_sats,
+                confirmations,
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -334,6 +515,7 @@ impl OnChainAdapter for MockOnChainAdapter {
     async fn verify_settlement(
         &self,
         proof: &SettlementProof,
+        _expected_address: &str,
         expected_amount_sats: i64,
         minimum_confirmations: u32,
     ) -> AppResult<PaymentVerification> {
@@ -376,14 +558,48 @@ impl OnChainAdapter for MockOnChainAdapter {
 pub type DynLightningAdapter = Arc<dyn LightningAdapter>;
 pub type DynOnChainAdapter = Arc<dyn OnChainAdapter>;
 
-pub fn build_lightning_adapter(config: &AppConfig) -> AppResult<DynLightningAdapter> {
-    match config.lightning_backend.as_str() {
-        "mock" => Ok(Arc::new(MockLightningAdapter)),
-        "ldk" | "ldk-node" => Ok(Arc::new(LdkNodeLightningAdapter::new(config)?)),
-        other => Err(ApiError::internal(format!(
-            "unknown APP__LIGHTNING_BACKEND value: {other}"
-        ))),
-    }
+pub fn build_payment_adapters(
+    config: &AppConfig,
+) -> AppResult<(DynLightningAdapter, DynOnChainAdapter)> {
+    let shared_ldk = if uses_ldk_backend(&config.lightning_backend)
+        || uses_ldk_backend(&config.onchain_backend)
+    {
+        Some(Arc::new(LdkNodeHandle::new(config)?))
+    } else {
+        None
+    };
+
+    let lightning_adapter: DynLightningAdapter = match config.lightning_backend.as_str() {
+        "mock" => Arc::new(MockLightningAdapter),
+        "ldk" | "ldk-node" => Arc::new(LdkNodeLightningAdapter::new(
+            shared_ldk
+                .clone()
+                .ok_or_else(|| ApiError::internal("missing shared ldk-node runtime"))?,
+            config.lightning_invoice_expiry_seconds,
+        )),
+        other => {
+            return Err(ApiError::internal(format!(
+                "unknown APP__LIGHTNING_BACKEND value: {other}"
+            )));
+        }
+    };
+
+    let onchain_adapter: DynOnChainAdapter = match config.onchain_backend.as_str() {
+        "mock" => Arc::new(MockOnChainAdapter),
+        "ldk" | "ldk-node" => Arc::new(LdkNodeOnChainAdapter::new(
+            shared_ldk
+                .clone()
+                .ok_or_else(|| ApiError::internal("missing shared ldk-node runtime"))?,
+            config.lightning_ldk_esplora_url.clone(),
+        )),
+        other => {
+            return Err(ApiError::internal(format!(
+                "unknown APP__ONCHAIN_BACKEND value: {other}"
+            )));
+        }
+    };
+
+    Ok((lightning_adapter, onchain_adapter))
 }
 
 pub fn receipt_hash(payload: &serde_json::Value) -> String {
@@ -437,6 +653,20 @@ fn decode_payment_hash(payment_hash: &str) -> AppResult<[u8; 32]> {
     })
 }
 
+fn parse_onchain_txid(txid: &str) -> AppResult<Txid> {
+    Txid::from_str(txid).map_err(|error| {
+        ApiError::payment_verification_failed(format!("invalid on-chain transaction id: {error}"))
+    })
+}
+
+fn normalize_esplora_base_url(base_url: &str) -> String {
+    base_url.trim_end_matches('/').to_owned()
+}
+
+fn uses_ldk_backend(backend: &str) -> bool {
+    matches!(backend, "ldk" | "ldk-node")
+}
+
 fn extract_ldk_bolt11_details(kind: &LdkPaymentKind) -> Option<(String, Option<String>)> {
     match kind {
         LdkPaymentKind::Bolt11 { hash, preimage, .. }
@@ -446,4 +676,23 @@ fn extract_ldk_bolt11_details(kind: &LdkPaymentKind) -> Option<(String, Option<S
         )),
         _ => None,
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct EsploraTransaction {
+    vout: Vec<EsploraTransactionOutput>,
+    status: EsploraTransactionStatus,
+}
+
+#[derive(Debug, Deserialize)]
+struct EsploraTransactionOutput {
+    value: u64,
+    scriptpubkey_address: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EsploraTransactionStatus {
+    confirmed: bool,
+    block_height: Option<u32>,
+    block_time: Option<i64>,
 }

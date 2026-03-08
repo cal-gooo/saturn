@@ -299,10 +299,15 @@ impl PaymentService {
                     .await?
             }
             PaymentRail::OnChain => {
+                let expected_address = order
+                    .onchain_address
+                    .as_deref()
+                    .ok_or_else(|| ApiError::internal("missing expected on-chain address"))?;
                 self.state
                     .onchain_adapter
                     .verify_settlement(
                         &proof,
+                        expected_address,
                         expected_amount,
                         self.state.config.onchain_confirmations_required,
                     )

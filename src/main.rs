@@ -3,7 +3,7 @@ use std::sync::Arc;
 use saturn::{
     app::{AppConfig, AppState, build_router},
     nostr::SdkNostrPublisher,
-    payments::{MockOnChainAdapter, build_lightning_adapter},
+    payments::build_payment_adapters,
     persistence::{
         PostgresNonceRepository, PostgresOrderRepository, PostgresQuoteRepository,
         PostgresReceiptRepository, connect,
@@ -26,6 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .run(&pool)
         .await?;
+    let (lightning_adapter, onchain_adapter) = build_payment_adapters(&config)?;
 
     let state = AppState::new(
         config.clone(),
@@ -33,8 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(PostgresOrderRepository::new(pool.clone())),
         Arc::new(PostgresReceiptRepository::new(pool.clone())),
         Arc::new(PostgresNonceRepository::new(pool)),
-        build_lightning_adapter(&config)?,
-        Arc::new(MockOnChainAdapter),
+        lightning_adapter,
+        onchain_adapter,
         Arc::new(SdkNostrPublisher::new(&config)?),
     );
     let app = build_router(state);

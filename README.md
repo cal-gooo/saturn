@@ -98,8 +98,9 @@ sqlx migrate run
 cargo run --bin saturn-server
 ```
 
-To enable the real Lightning adapter, set `APP__LIGHTNING_BACKEND=ldk` and provide the LDK seed,
-storage path, and chain source settings in `.env`.
+To enable the real LDK-backed adapters, set `APP__LIGHTNING_BACKEND=ldk` and/or
+`APP__ONCHAIN_BACKEND=ldk`, then provide the shared LDK seed, storage path, and chain source
+settings in `.env`.
 
 5. Run tests:
 

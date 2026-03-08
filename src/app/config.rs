@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub merchant_nostr_secret_key: String,
     pub merchant_request_signing_secret_key: String,
     pub lightning_backend: String,
+    pub onchain_backend: String,
     pub lightning_ldk_seed_hex: String,
     pub lightning_ldk_storage_dir: String,
     pub lightning_ldk_network: String,
@@ -60,6 +61,7 @@ impl AppConfig {
             merchant_nostr_secret_key,
             merchant_request_signing_secret_key,
             lightning_backend: read_string("APP__LIGHTNING_BACKEND", "mock"),
+            onchain_backend: read_string("APP__ONCHAIN_BACKEND", "mock"),
             lightning_ldk_seed_hex: read_string(
                 "APP__LIGHTNING_LDK_SEED_HEX",
                 "33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
@@ -112,6 +114,7 @@ impl AppConfig {
             merchant_nostr_secret_key,
             merchant_request_signing_secret_key,
             lightning_backend: "mock".into(),
+            onchain_backend: "mock".into(),
             lightning_ldk_seed_hex:
                 "33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333".into(),
             lightning_ldk_storage_dir: "./data/ldk-tests".into(),
