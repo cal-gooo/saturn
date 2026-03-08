@@ -371,71 +371,21 @@ impl OnChainAdapter for LdkNodeOnChainAdapter {
         }
 
         let transaction = self.fetch_transaction(&txid).await?;
-        let output = transaction.vout.get(vout as usize).ok_or_else(|| {
-            ApiError::payment_verification_failed(
-                "on-chain transaction output index is out of range",
-            )
-        })?;
-        let output_address = output.scriptpubkey_address.as_deref().ok_or_else(|| {
-            ApiError::payment_verification_failed(
-                "on-chain transaction output is missing a standard address",
-            )
-        })?;
-        if output_address != expected_address {
-            return Err(ApiError::payment_verification_failed(
-                "on-chain transaction output does not match the order address",
-            ));
-        }
-
-        let output_value_sats = i64::try_from(output.value)
-            .map_err(|_| ApiError::payment_verification_failed("invalid on-chain output amount"))?;
-        if output_value_sats != expected_amount_sats {
-            return Err(ApiError::payment_verification_failed(
-                "on-chain transaction output amount does not match quote",
-            ));
-        }
-
-        let confirmations = match transaction.status {
-            EsploraTransactionStatus {
-                confirmed: true,
-                block_height: Some(block_height),
-                ..
-            } => {
-                let tip_height = self.fetch_tip_height().await?;
-                tip_height.saturating_sub(block_height).saturating_add(1)
-            }
-            EsploraTransactionStatus {
-                confirmed: true,
-                block_height: None,
-                ..
-            } => {
-                return Err(ApiError::internal(
-                    "esplora marked transaction confirmed without a block height",
-                ));
-            }
-            _ => 0,
-        };
-        let settled_at = transaction
-            .status
-            .block_time
-            .and_then(|timestamp| DateTime::<Utc>::from_timestamp(timestamp, 0))
-            .unwrap_or_else(Utc::now);
-        let finality = if confirmations >= minimum_confirmations {
-            PaymentFinality::Confirmed
+        let tip_height = if transaction.status.confirmed {
+            Some(self.fetch_tip_height().await?)
         } else {
-            PaymentFinality::Pending
+            None
         };
-
-        Ok(PaymentVerification {
-            finality,
-            settled_at,
-            normalized_proof: SettlementProof::OnChain {
-                txid: txid.to_string(),
-                vout,
-                amount_sats: expected_amount_sats,
-                confirmations,
-            },
-        })
+        verify_onchain_transaction(
+            &txid.to_string(),
+            vout,
+            expected_address,
+            expected_amount_sats,
+            minimum_confirmations,
+            &transaction,
+            tip_height,
+            Utc::now(),
+        )
     }
 }
 
@@ -623,6 +573,63 @@ pub fn build_receipt_payload(
     })
 }
 
+fn verify_onchain_transaction(
+    txid: &str,
+    vout: u32,
+    expected_address: &str,
+    expected_amount_sats: i64,
+    minimum_confirmations: u32,
+    transaction: &EsploraTransaction,
+    tip_height: Option<u32>,
+    observed_at: DateTime<Utc>,
+) -> AppResult<PaymentVerification> {
+    let output = transaction.vout.get(vout as usize).ok_or_else(|| {
+        ApiError::payment_verification_failed("on-chain transaction output index is out of range")
+    })?;
+    let output_address = output.scriptpubkey_address.as_deref().ok_or_else(|| {
+        ApiError::payment_verification_failed(
+            "on-chain transaction output is missing a standard address",
+        )
+    })?;
+    if output_address != expected_address {
+        return Err(ApiError::payment_verification_failed(
+            "on-chain transaction output does not match the order address",
+        ));
+    }
+
+    let output_value_sats = i64::try_from(output.value)
+        .map_err(|_| ApiError::payment_verification_failed("invalid on-chain output amount"))?;
+    if output_value_sats != expected_amount_sats {
+        return Err(ApiError::payment_verification_failed(
+            "on-chain transaction output amount does not match quote",
+        ));
+    }
+
+    let confirmations =
+        confirmation_count(&transaction.status, tip_height.unwrap_or_default())?;
+    let settled_at = transaction
+        .status
+        .block_time
+        .and_then(|timestamp| DateTime::<Utc>::from_timestamp(timestamp, 0))
+        .unwrap_or(observed_at);
+    let finality = if confirmations >= minimum_confirmations {
+        PaymentFinality::Confirmed
+    } else {
+        PaymentFinality::Pending
+    };
+
+    Ok(PaymentVerification {
+        finality,
+        settled_at,
+        normalized_proof: SettlementProof::OnChain {
+            txid: txid.to_owned(),
+            vout,
+            amount_sats: expected_amount_sats,
+            confirmations,
+        },
+    })
+}
+
 fn parse_ldk_network(value: &str) -> AppResult<BitcoinNetwork> {
     match value {
         "bitcoin" | "mainnet" => Ok(BitcoinNetwork::Bitcoin),
@@ -667,6 +674,24 @@ fn uses_ldk_backend(backend: &str) -> bool {
     matches!(backend, "ldk" | "ldk-node")
 }
 
+fn confirmation_count(status: &EsploraTransactionStatus, tip_height: u32) -> AppResult<u32> {
+    match status {
+        EsploraTransactionStatus {
+            confirmed: true,
+            block_height: Some(block_height),
+            ..
+        } => Ok(tip_height.saturating_sub(*block_height).saturating_add(1)),
+        EsploraTransactionStatus {
+            confirmed: true,
+            block_height: None,
+            ..
+        } => Err(ApiError::internal(
+            "esplora marked transaction confirmed without a block height",
+        )),
+        _ => Ok(0),
+    }
+}
+
 fn extract_ldk_bolt11_details(kind: &LdkPaymentKind) -> Option<(String, Option<String>)> {
     match kind {
         LdkPaymentKind::Bolt11 { hash, preimage, .. }
@@ -695,4 +720,145 @@ struct EsploraTransactionStatus {
     confirmed: bool,
     block_height: Option<u32>,
     block_time: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    fn sample_transaction(address: &str, value: u64, status: EsploraTransactionStatus) -> EsploraTransaction {
+        EsploraTransaction {
+            vout: vec![EsploraTransactionOutput {
+                value,
+                scriptpubkey_address: Some(address.to_owned()),
+            }],
+            status,
+        }
+    }
+
+    #[test]
+    fn build_payment_adapters_supports_mock_backends() {
+        let config = AppConfig::for_tests();
+        let adapters = build_payment_adapters(&config);
+        assert!(adapters.is_ok(), "mock backends should build without live services");
+    }
+
+    #[test]
+    fn build_payment_adapters_rejects_unknown_onchain_backend() {
+        let mut config = AppConfig::for_tests();
+        config.onchain_backend = "wat".into();
+
+        let error = match build_payment_adapters(&config) {
+            Ok(_) => panic!("unknown backend should fail"),
+            Err(error) => error,
+        };
+        assert!(error.message.contains("APP__ONCHAIN_BACKEND"));
+    }
+
+    #[test]
+    fn verify_onchain_transaction_requires_matching_address() {
+        let transaction = sample_transaction(
+            "bcrt1qexpected000000000000000000000000000000000",
+            21_000,
+            EsploraTransactionStatus {
+                confirmed: true,
+                block_height: Some(100),
+                block_time: Some(1_700_000_000),
+            },
+        );
+
+        let error = verify_onchain_transaction(
+            "00".repeat(32).as_str(),
+            0,
+            "bcrt1qdifferent0000000000000000000000000000000",
+            21_000,
+            3,
+            &transaction,
+            Some(102),
+            Utc::now(),
+        )
+        .expect_err("address mismatch should fail");
+
+        assert!(error.message.contains("does not match the order address"));
+    }
+
+    #[test]
+    fn verify_onchain_transaction_reports_confirmed_finality() {
+        let transaction = sample_transaction(
+            "bcrt1qexpected000000000000000000000000000000000",
+            21_000,
+            EsploraTransactionStatus {
+                confirmed: true,
+                block_height: Some(100),
+                block_time: Some(1_700_000_000),
+            },
+        );
+
+        let verification = verify_onchain_transaction(
+            &"11".repeat(32),
+            0,
+            "bcrt1qexpected000000000000000000000000000000000",
+            21_000,
+            3,
+            &transaction,
+            Some(102),
+            Utc.timestamp_opt(1_700_000_100, 0).single().expect("timestamp"),
+        )
+        .expect("confirmed transaction should verify");
+
+        assert_eq!(verification.finality, PaymentFinality::Confirmed);
+        assert_eq!(
+            verification.normalized_proof,
+            SettlementProof::OnChain {
+                txid: "11".repeat(32),
+                vout: 0,
+                amount_sats: 21_000,
+                confirmations: 3,
+            }
+        );
+        assert_eq!(
+            verification.settled_at,
+            Utc.timestamp_opt(1_700_000_000, 0).single().expect("block time"),
+        );
+    }
+
+    #[test]
+    fn verify_onchain_transaction_reports_pending_for_unconfirmed_txs() {
+        let observed_at = Utc.timestamp_opt(1_700_000_100, 0).single().expect("timestamp");
+        let transaction = sample_transaction(
+            "bcrt1qexpected000000000000000000000000000000000",
+            21_000,
+            EsploraTransactionStatus {
+                confirmed: false,
+                block_height: None,
+                block_time: None,
+            },
+        );
+
+        let verification = verify_onchain_transaction(
+            &"22".repeat(32),
+            0,
+            "bcrt1qexpected000000000000000000000000000000000",
+            21_000,
+            1,
+            &transaction,
+            None,
+            observed_at,
+        )
+        .expect("unconfirmed transaction should still normalize");
+
+        assert_eq!(verification.finality, PaymentFinality::Pending);
+        assert_eq!(verification.settled_at, observed_at);
+        assert_eq!(
+            verification.normalized_proof,
+            SettlementProof::OnChain {
+                txid: "22".repeat(32),
+                vout: 0,
+                amount_sats: 21_000,
+                confirmations: 0,
+            }
+        );
+    }
 }
