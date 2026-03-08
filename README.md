@@ -114,6 +114,8 @@ locally and verify real settlement flows:
 ```bash
 cargo test --test ldk_regtest -- --ignored --nocapture
 cargo test payments::tests::ldk_lightning_adapter_round_trips_real_payment -- --ignored --nocapture
+cargo test payments::tests::saturn_router_completes_real_lightning_checkout -- --ignored --nocapture
+cargo test payments::tests::saturn_router_completes_real_onchain_checkout -- --ignored --nocapture
 ```
 
 If `cargo` is not on your shell `PATH`, use:

@@ -1132,7 +1132,9 @@ mod tests {
         )
         .await
         .expect("checkout should succeed");
-        assert_eq!(checkout_status, 200);
+        if checkout_status != 200 {
+            panic!("unexpected checkout response: {checkout_body}");
+        }
 
         let payment_hash = checkout_body["lightning_payment_hash"]
             .as_str()
@@ -1159,6 +1161,138 @@ mod tests {
             21_000,
         )
         .await;
+        assert_eq!(payment_status, 200);
+        assert_eq!(payment_body["state"], "paid");
+
+        let (order_status, order_body) = json_request(
+            app,
+            Method::GET,
+            &format!("/order/{order_id}"),
+            Value::Null,
+            None,
+        )
+        .await
+        .expect("order lookup should succeed");
+        assert_eq!(order_status, 200);
+        assert_eq!(order_body["state"], "paid");
+        assert_eq!(order_body["quote_id"], quote_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires downloaded bitcoind/electrs binaries and a live regtest environment"]
+    async fn saturn_router_completes_real_onchain_checkout() {
+        let (bitcoind, electrsd) = setup_bitcoind_and_electrsd();
+        let rpc = &bitcoind.client;
+        let _ = rpc.create_wallet("saturn_router_onchain_regtest");
+        let _ = rpc.load_wallet("saturn_router_onchain_regtest");
+        generate_blocks_and_wait(rpc, &electrsd, 101).await;
+
+        let esplora_url = format!(
+            "http://{}",
+            electrsd
+                .esplora_url
+                .as_ref()
+                .expect("electrsd should expose esplora")
+        );
+        let receiver_handle = Arc::new(build_test_ldk_handle(&esplora_url, 71, None));
+
+        let mut config = AppConfig::for_tests();
+        config.lightning_backend = "mock".into();
+        config.onchain_backend = "ldk".into();
+        config.lightning_ldk_network = "regtest".into();
+        config.lightning_ldk_esplora_url = esplora_url.clone();
+        config.lightning_ldk_rgs_url = None;
+        config.onchain_confirmations_required = 1;
+
+        let app = router_with_real_onchain(
+            config.clone(),
+            Arc::new(LdkNodeOnChainAdapter::new(
+                Arc::clone(&receiver_handle),
+                esplora_url.clone(),
+            )),
+        );
+        let seller_pubkey = test_public_key();
+        let buyer_pubkey =
+            "02dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_owned();
+
+        let quote_request = signed_envelope(json!({
+            "buyer_nostr_pubkey": buyer_pubkey,
+            "seller_nostr_pubkey": seller_pubkey,
+            "callback_relays": ["wss://relay.damus.io"],
+            "items": [
+                {
+                    "sku": "agent-plan",
+                    "description": "Autonomous procurement plan",
+                    "quantity": 1,
+                    "unit_price_sats": 21000
+                }
+            ],
+            "settlement_preference": "lightning_with_onchain_fallback",
+            "buyer_reference": "ldk-onchain-flow"
+        }));
+
+        let (quote_status, quote_body) =
+            json_request(app.clone(), Method::POST, "/quote", quote_request, None)
+                .await
+                .expect("quote request should succeed");
+        assert_eq!(quote_status, 200);
+
+        let quote_id = quote_body["quote_id"].as_str().expect("quote id");
+        let order_id = quote_body["order_id"].as_str().expect("order id");
+        let checkout_request = signed_envelope(json!({
+            "quote_id": quote_id,
+            "selected_rail": "on_chain",
+            "buyer_reference": "buyer-order-onchain",
+            "return_relays": ["wss://nos.lol"]
+        }));
+
+        let (checkout_status, checkout_body) = json_request(
+            app.clone(),
+            Method::POST,
+            "/checkout-intent",
+            checkout_request,
+            Some("checkout-onchain-1"),
+        )
+        .await
+        .expect("checkout should succeed");
+        if checkout_status != 200 {
+            panic!("unexpected checkout response: {checkout_body}");
+        }
+
+        let onchain_address = checkout_body["onchain_fallback_address"]
+            .as_str()
+            .expect("checkout should return on-chain fallback address")
+            .to_owned();
+        let parsed_address = onchain_address
+            .parse::<Address<NetworkUnchecked>>()
+            .expect("fallback address should parse")
+            .require_network(BitcoinNetwork::Regtest)
+            .expect("fallback address should target regtest");
+        let txid = rpc
+            .send_to_address(&parsed_address, Amount::from_sat(21_000))
+            .expect("bitcoind should fund the checkout address")
+            .0
+            .parse::<Txid>()
+            .expect("checkout txid should parse");
+        wait_for_esplora_tx(&esplora_url, &txid).await;
+        let vout = find_output_index(&esplora_url, &txid, &onchain_address, 21_000)
+            .await
+            .expect("checkout tx should contain the expected output");
+
+        let (pending_status, pending_body) =
+            submit_onchain_payment_confirm(app.clone(), order_id, &txid.to_string(), vout, 21_000)
+                .await;
+        assert_eq!(pending_status, 202);
+        assert_eq!(
+            pending_body["error"]["code"],
+            Value::String("payment_finality_pending".into())
+        );
+
+        generate_blocks_and_wait(rpc, &electrsd, 1).await;
+
+        let (payment_status, payment_body) =
+            submit_onchain_payment_confirm(app.clone(), order_id, &txid.to_string(), vout, 21_000)
+                .await;
         assert_eq!(payment_status, 200);
         assert_eq!(payment_body["state"], "paid");
 
@@ -1325,6 +1459,34 @@ mod tests {
         panic!("timed out waiting for esplora to index transaction {txid}");
     }
 
+    async fn find_output_index(
+        esplora_base_url: &str,
+        txid: &Txid,
+        expected_address: &str,
+        expected_value: u64,
+    ) -> Option<u32> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/tx/{txid}", esplora_base_url);
+        let transaction: EsploraTransaction = client
+            .get(&url)
+            .send()
+            .await
+            .expect("transaction query should succeed")
+            .json()
+            .await
+            .expect("transaction response should decode");
+
+        transaction
+            .vout
+            .iter()
+            .enumerate()
+            .find(|(_, output)| {
+                output.scriptpubkey_address.as_deref() == Some(expected_address)
+                    && output.value == expected_value
+            })
+            .map(|(index, _)| index as u32)
+    }
+
     async fn wait_for_event<F>(node: &LdkNode, matcher: F)
     where
         F: Fn(&Event) -> bool,
@@ -1376,6 +1538,20 @@ mod tests {
             Arc::new(InMemoryNonceRepository::default()),
             lightning_adapter,
             Arc::new(MockOnChainAdapter),
+            Arc::new(MockNostrPublisher::new(relays)),
+        ))
+    }
+
+    fn router_with_real_onchain(config: AppConfig, onchain_adapter: DynOnChainAdapter) -> Router {
+        let relays = config.nostr_relays.clone();
+        build_router(AppState::new(
+            config,
+            Arc::new(InMemoryQuoteRepository::default()),
+            Arc::new(InMemoryOrderRepository::default()),
+            Arc::new(InMemoryReceiptRepository::default()),
+            Arc::new(InMemoryNonceRepository::default()),
+            Arc::new(MockLightningAdapter),
+            onchain_adapter,
             Arc::new(MockNostrPublisher::new(relays)),
         ))
     }
@@ -1488,5 +1664,35 @@ mod tests {
         }
 
         panic!("timed out waiting for payment confirmation to succeed");
+    }
+
+    async fn submit_onchain_payment_confirm(
+        app: Router,
+        order_id: &str,
+        txid: &str,
+        vout: u32,
+        amount_sats: i64,
+    ) -> (u16, Value) {
+        let envelope = signed_envelope(json!({
+            "order_id": order_id,
+            "rail": "on_chain",
+            "settlement_proof": {
+                "type": "on_chain",
+                "txid": txid,
+                "vout": vout,
+                "amount_sats": amount_sats,
+                "confirmations": 0
+            }
+        }));
+
+        json_request(
+            app,
+            Method::POST,
+            "/payment/confirm",
+            envelope,
+            Some("payment-onchain-1"),
+        )
+        .await
+        .expect("on-chain payment confirm request should complete")
     }
 }
