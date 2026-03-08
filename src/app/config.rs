@@ -10,7 +10,8 @@ pub struct AppConfig {
     pub database_url: String,
     pub merchant_name: String,
     pub merchant_nostr_pubkey: String,
-    pub merchant_signing_secret_key: String,
+    pub merchant_nostr_secret_key: String,
+    pub merchant_request_signing_secret_key: String,
     pub nostr_relays: Vec<String>,
     pub quote_ttl_seconds: u64,
     pub quote_lock_seconds: u64,
@@ -21,19 +22,23 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> AppResult<Self> {
-        let merchant_signing_secret_key = read_string(
-            "APP__MERCHANT_SIGNING_SECRET_KEY",
+        let merchant_nostr_secret_key = read_string(
+            "APP__MERCHANT_NOSTR_SECRET_KEY",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        let merchant_request_signing_secret_key = read_string(
+            "APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY",
             "1111111111111111111111111111111111111111111111111111111111111111",
         );
         let derived_merchant_nostr_pubkey =
-            derive_nostr_pubkey(&merchant_signing_secret_key)?;
+            derive_nostr_pubkey(&merchant_nostr_secret_key)?;
         let merchant_nostr_pubkey = match env::var("APP__MERCHANT_NOSTR_PUBKEY") {
             Ok(value) => normalize_nostr_pubkey(&value)?,
             Err(_) => derived_merchant_nostr_pubkey.clone(),
         };
         if merchant_nostr_pubkey != derived_merchant_nostr_pubkey {
             return Err(ApiError::internal(
-                "APP__MERCHANT_NOSTR_PUBKEY must match the pubkey derived from APP__MERCHANT_SIGNING_SECRET_KEY",
+                "APP__MERCHANT_NOSTR_PUBKEY must match the pubkey derived from APP__MERCHANT_NOSTR_SECRET_KEY",
             ));
         }
 
@@ -45,7 +50,8 @@ impl AppConfig {
             ),
             merchant_name: read_string("APP__MERCHANT_NAME", "Example Merchant"),
             merchant_nostr_pubkey,
-            merchant_signing_secret_key,
+            merchant_nostr_secret_key,
+            merchant_request_signing_secret_key,
             nostr_relays: read_string("APP__NOSTR_RELAYS", "wss://relay.damus.io,wss://nos.lol")
                 .split(',')
                 .map(str::trim)
@@ -64,15 +70,18 @@ impl AppConfig {
     }
 
     pub fn for_tests() -> Self {
-        let merchant_signing_secret_key =
+        let merchant_nostr_secret_key =
             "1111111111111111111111111111111111111111111111111111111111111111".to_owned();
+        let merchant_request_signing_secret_key =
+            "2222222222222222222222222222222222222222222222222222222222222222".to_owned();
         Self {
             server_addr: "127.0.0.1:3000".into(),
             database_url: "postgres://postgres:postgres@localhost:5432/a2a_commerce".into(),
             merchant_name: "Test Merchant".into(),
-            merchant_nostr_pubkey: derive_nostr_pubkey(&merchant_signing_secret_key)
+            merchant_nostr_pubkey: derive_nostr_pubkey(&merchant_nostr_secret_key)
                 .expect("test merchant nostr pubkey should derive from secret key"),
-            merchant_signing_secret_key,
+            merchant_nostr_secret_key,
+            merchant_request_signing_secret_key,
             nostr_relays: vec!["wss://relay.damus.io".into(), "wss://nos.lol".into()],
             quote_ttl_seconds: 300,
             quote_lock_seconds: 180,
@@ -131,17 +140,17 @@ fn normalize_nostr_pubkey(value: &str) -> AppResult<String> {
 fn derive_nostr_pubkey(secret_key_hex: &str) -> AppResult<String> {
     let secret_key_bytes = hex::decode(secret_key_hex).map_err(|error| {
         ApiError::internal(format!(
-            "invalid APP__MERCHANT_SIGNING_SECRET_KEY hex: {error}"
+            "invalid APP__MERCHANT_NOSTR_SECRET_KEY hex: {error}"
         ))
     })?;
     let secret_key = SecretKey::from_byte_array(
         secret_key_bytes.try_into().map_err(|_| {
-            ApiError::internal("APP__MERCHANT_SIGNING_SECRET_KEY must be 32 bytes")
+            ApiError::internal("APP__MERCHANT_NOSTR_SECRET_KEY must be 32 bytes")
         })?,
     )
     .map_err(|error| {
         ApiError::internal(format!(
-            "invalid APP__MERCHANT_SIGNING_SECRET_KEY: {error}"
+            "invalid APP__MERCHANT_NOSTR_SECRET_KEY: {error}"
         ))
     })?;
     let secp = Secp256k1::signing_only();
@@ -167,8 +176,12 @@ mod tests {
         let _guard = env_lock().lock().expect("env lock should work");
         unsafe {
             std::env::set_var(
-                "APP__MERCHANT_SIGNING_SECRET_KEY",
+                "APP__MERCHANT_NOSTR_SECRET_KEY",
                 "1111111111111111111111111111111111111111111111111111111111111111",
+            );
+            std::env::set_var(
+                "APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY",
+                "2222222222222222222222222222222222222222222222222222222222222222",
             );
             std::env::set_var(
                 "APP__MERCHANT_NOSTR_PUBKEY",
@@ -186,7 +199,8 @@ mod tests {
         );
 
         unsafe {
-            std::env::remove_var("APP__MERCHANT_SIGNING_SECRET_KEY");
+            std::env::remove_var("APP__MERCHANT_NOSTR_SECRET_KEY");
+            std::env::remove_var("APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY");
             std::env::remove_var("APP__MERCHANT_NOSTR_PUBKEY");
         }
     }
@@ -196,8 +210,12 @@ mod tests {
         let _guard = env_lock().lock().expect("env lock should work");
         unsafe {
             std::env::set_var(
-                "APP__MERCHANT_SIGNING_SECRET_KEY",
+                "APP__MERCHANT_NOSTR_SECRET_KEY",
                 "1111111111111111111111111111111111111111111111111111111111111111",
+            );
+            std::env::set_var(
+                "APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY",
+                "2222222222222222222222222222222222222222222222222222222222222222",
             );
             std::env::set_var(
                 "APP__MERCHANT_NOSTR_PUBKEY",
@@ -215,7 +233,8 @@ mod tests {
         );
 
         unsafe {
-            std::env::remove_var("APP__MERCHANT_SIGNING_SECRET_KEY");
+            std::env::remove_var("APP__MERCHANT_NOSTR_SECRET_KEY");
+            std::env::remove_var("APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY");
             std::env::remove_var("APP__MERCHANT_NOSTR_PUBKEY");
         }
     }

@@ -49,7 +49,7 @@ pub struct SdkNostrPublisher {
 
 impl SdkNostrPublisher {
     pub fn new(config: &AppConfig) -> AppResult<Self> {
-        let keys = Keys::parse(&config.merchant_signing_secret_key)
+        let keys = Keys::parse(&config.merchant_nostr_secret_key)
             .map_err(|error| ApiError::internal(format!("invalid Nostr signer key: {error}")))?;
         Ok(Self {
             client: Client::new(keys),

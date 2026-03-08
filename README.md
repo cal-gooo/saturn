@@ -115,8 +115,10 @@ export PATH="$(dirname "$(rustup which rustc)"):$PATH"
 1. Export a signing secret:
 
 ```bash
-export A2AC_SIGNING_SECRET=1111111111111111111111111111111111111111111111111111111111111111
+export APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
 ```
+
+Saturn keeps its request-signing key separate from the Nostr relay identity key in `.env`.
 
 2. Create a quote request body:
 

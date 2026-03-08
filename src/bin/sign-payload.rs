@@ -6,6 +6,7 @@ use serde_json::Value;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret_key = std::env::args()
         .nth(1)
+        .or_else(|| std::env::var("APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY").ok())
         .or_else(|| std::env::var("A2AC_SIGNING_SECRET").ok())
         .unwrap_or_else(|| {
             "1111111111111111111111111111111111111111111111111111111111111111".into()
