@@ -65,7 +65,9 @@ impl SdkNostrPublisher {
         }
 
         self.client.connect().await;
-        self.client.wait_for_connection(Duration::from_secs(5)).await;
+        self.client
+            .wait_for_connection(Duration::from_secs(5))
+            .await;
         Ok(())
     }
 
@@ -90,8 +92,11 @@ impl SdkNostrPublisher {
             .await
             .map_err(|error| ApiError::internal(format!("failed to publish {context}: {error}")))?;
         let event_id = output.id().to_string();
-        let success_relays: Vec<String> =
-            output.success.into_iter().map(|relay| relay.to_string()).collect();
+        let success_relays: Vec<String> = output
+            .success
+            .into_iter()
+            .map(|relay| relay.to_string())
+            .collect();
         let failed_relays: Vec<String> = output
             .failed
             .into_iter()

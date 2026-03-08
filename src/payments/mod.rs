@@ -106,9 +106,14 @@ impl LdkNodeOnChainAdapter {
 
     async fn fetch_transaction(&self, txid: &Txid) -> AppResult<EsploraTransaction> {
         let url = format!("{}/tx/{txid}", self.esplora_base_url);
-        let response = self.esplora_client.get(&url).send().await.map_err(|error| {
-            ApiError::internal(format!("failed to query esplora transaction: {error}"))
-        })?;
+        let response = self
+            .esplora_client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to query esplora transaction: {error}"))
+            })?;
 
         if response.status() == HttpStatusCode::NOT_FOUND {
             return Err(ApiError::payment_verification_failed(
@@ -120,20 +125,29 @@ impl LdkNodeOnChainAdapter {
             ApiError::internal(format!("esplora transaction query failed: {error}"))
         })?;
         response.json().await.map_err(|error| {
-            ApiError::internal(format!("failed to decode esplora transaction response: {error}"))
+            ApiError::internal(format!(
+                "failed to decode esplora transaction response: {error}"
+            ))
         })
     }
 
     async fn fetch_tip_height(&self) -> AppResult<u32> {
         let url = format!("{}/blocks/tip/height", self.esplora_base_url);
-        let response = self.esplora_client.get(&url).send().await.map_err(|error| {
-            ApiError::internal(format!("failed to query esplora tip height: {error}"))
-        })?;
+        let response = self
+            .esplora_client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|error| {
+                ApiError::internal(format!("failed to query esplora tip height: {error}"))
+            })?;
         response.error_for_status_ref().map_err(|error| {
             ApiError::internal(format!("esplora tip height query failed: {error}"))
         })?;
         let height = response.text().await.map_err(|error| {
-            ApiError::internal(format!("failed to read esplora tip height response: {error}"))
+            ApiError::internal(format!(
+                "failed to read esplora tip height response: {error}"
+            ))
         })?;
         height.trim().parse().map_err(|error| {
             ApiError::internal(format!("invalid esplora tip height response: {error}"))
@@ -186,11 +200,10 @@ impl LightningAdapter for LdkNodeLightningAdapter {
         let handle = Arc::clone(&self.handle);
 
         task::spawn_blocking(move || -> AppResult<LightningInvoice> {
-            let description = Bolt11InvoiceDescription::Direct(
-                Description::new(memo).map_err(|error| {
+            let description =
+                Bolt11InvoiceDescription::Direct(Description::new(memo).map_err(|error| {
                     ApiError::internal(format!("invalid lightning invoice description: {error}"))
-                })?,
-            );
+                })?);
             let invoice = handle
                 .node
                 .bolt11_payment()
@@ -222,7 +235,12 @@ impl LightningAdapter for LdkNodeLightningAdapter {
                 preimage,
                 settled_at,
                 amount_sats,
-            } => (payment_hash.clone(), preimage.clone(), *settled_at, *amount_sats),
+            } => (
+                payment_hash.clone(),
+                preimage.clone(),
+                *settled_at,
+                *amount_sats,
+            ),
             _ => {
                 return Err(ApiError::payment_verification_failed(
                     "lightning adapter received non-lightning proof",
@@ -285,8 +303,9 @@ impl LightningAdapter for LdkNodeLightningAdapter {
                 }
             }
 
-            let settled_at = DateTime::<Utc>::from_timestamp(payment.latest_update_timestamp as i64, 0)
-                .unwrap_or(settled_at_hint);
+            let settled_at =
+                DateTime::<Utc>::from_timestamp(payment.latest_update_timestamp as i64, 0)
+                    .unwrap_or(settled_at_hint);
 
             match payment.status {
                 LdkPaymentStatus::Pending => Err(ApiError::payment_verification_failed(
@@ -336,7 +355,9 @@ impl OnChainAdapter for LdkNodeOnChainAdapter {
                 .new_address()
                 .map(|address| address.to_string())
                 .map_err(|error| {
-                    ApiError::internal(format!("ldk-node failed to derive on-chain address: {error}"))
+                    ApiError::internal(format!(
+                        "ldk-node failed to derive on-chain address: {error}"
+                    ))
                 })
         })
         .await
@@ -605,8 +626,7 @@ fn verify_onchain_transaction(
         ));
     }
 
-    let confirmations =
-        confirmation_count(&transaction.status, tip_height.unwrap_or_default())?;
+    let confirmations = confirmation_count(&transaction.status, tip_height.unwrap_or_default())?;
     let settled_at = transaction
         .status
         .block_time
@@ -653,7 +673,9 @@ fn parse_ldk_seed_hex(seed_hex: &str) -> AppResult<[u8; WALLET_KEYS_SEED_LEN]> {
 
 fn decode_payment_hash(payment_hash: &str) -> AppResult<[u8; 32]> {
     let bytes = hex::decode(payment_hash).map_err(|error| {
-        ApiError::payment_verification_failed(format!("lightning payment hash hex invalid: {error}"))
+        ApiError::payment_verification_failed(format!(
+            "lightning payment hash hex invalid: {error}"
+        ))
     })?;
     bytes.try_into().map_err(|_| {
         ApiError::payment_verification_failed("lightning payment hash must be 32 bytes")
@@ -732,8 +754,8 @@ mod tests {
         http::{Method, Request},
     };
     use chrono::{TimeZone, Utc};
-    use electrsd::corepc_node::{self, Node as BitcoinD};
     use electrsd::ElectrsD;
+    use electrsd::corepc_node::{self, Node as BitcoinD};
     use http_body_util::BodyExt;
     use ldk_node::{
         Builder as LdkNodeBuilder, Event,
@@ -757,7 +779,11 @@ mod tests {
         security::signing::{derive_public_key, sign_value},
     };
 
-    fn sample_transaction(address: &str, value: u64, status: EsploraTransactionStatus) -> EsploraTransaction {
+    fn sample_transaction(
+        address: &str,
+        value: u64,
+        status: EsploraTransactionStatus,
+    ) -> EsploraTransaction {
         EsploraTransaction {
             vout: vec![EsploraTransactionOutput {
                 value,
@@ -771,7 +797,10 @@ mod tests {
     fn build_payment_adapters_supports_mock_backends() {
         let config = AppConfig::for_tests();
         let adapters = build_payment_adapters(&config);
-        assert!(adapters.is_ok(), "mock backends should build without live services");
+        assert!(
+            adapters.is_ok(),
+            "mock backends should build without live services"
+        );
     }
 
     #[test]
@@ -833,7 +862,9 @@ mod tests {
             3,
             &transaction,
             Some(102),
-            Utc.timestamp_opt(1_700_000_100, 0).single().expect("timestamp"),
+            Utc.timestamp_opt(1_700_000_100, 0)
+                .single()
+                .expect("timestamp"),
         )
         .expect("confirmed transaction should verify");
 
@@ -849,13 +880,18 @@ mod tests {
         );
         assert_eq!(
             verification.settled_at,
-            Utc.timestamp_opt(1_700_000_000, 0).single().expect("block time"),
+            Utc.timestamp_opt(1_700_000_000, 0)
+                .single()
+                .expect("block time"),
         );
     }
 
     #[test]
     fn verify_onchain_transaction_reports_pending_for_unconfirmed_txs() {
-        let observed_at = Utc.timestamp_opt(1_700_000_100, 0).single().expect("timestamp");
+        let observed_at = Utc
+            .timestamp_opt(1_700_000_100, 0)
+            .single()
+            .expect("timestamp");
         let transaction = sample_transaction(
             "bcrt1qexpected000000000000000000000000000000000",
             21_000,
@@ -946,7 +982,10 @@ mod tests {
             )
             .expect("payer should open a private channel");
 
-        wait_for_event(&payer, |event| matches!(event, Event::ChannelPending { .. })).await;
+        wait_for_event(&payer, |event| {
+            matches!(event, Event::ChannelPending { .. })
+        })
+        .await;
         wait_for_event(&receiver_handle.node, |event| {
             matches!(event, Event::ChannelPending { .. })
         })
@@ -967,12 +1006,16 @@ mod tests {
             .create_invoice(Uuid::new_v4(), 21_000, "saturn regtest lightning")
             .await
             .expect("receiver should create a real invoice");
-        let parsed_invoice = Bolt11Invoice::from_str(&invoice.bolt11).expect("invoice should parse");
+        let parsed_invoice =
+            Bolt11Invoice::from_str(&invoice.bolt11).expect("invoice should parse");
         payer
             .bolt11_payment()
             .send(&parsed_invoice, None)
             .expect("payer should send invoice");
-        wait_for_event(&payer, |event| matches!(event, Event::PaymentSuccessful { .. })).await;
+        wait_for_event(&payer, |event| {
+            matches!(event, Event::PaymentSuccessful { .. })
+        })
+        .await;
         wait_for_event(&receiver_handle.node, |event| {
             matches!(event, Event::PaymentReceived { .. })
         })
@@ -1002,7 +1045,10 @@ mod tests {
             } => {
                 assert_eq!(payment_hash, invoice.payment_hash);
                 assert_eq!(amount_sats, 21_000);
-                assert!(preimage.is_some(), "ldk-node should expose a settled preimage");
+                assert!(
+                    preimage.is_some(),
+                    "ldk-node should expose a settled preimage"
+                );
             }
             other => panic!("expected normalized lightning proof, got {other:?}"),
         }
@@ -1061,7 +1107,10 @@ mod tests {
             )
             .expect("payer should open a private channel");
 
-        wait_for_event(&payer, |event| matches!(event, Event::ChannelPending { .. })).await;
+        wait_for_event(&payer, |event| {
+            matches!(event, Event::ChannelPending { .. })
+        })
+        .await;
         wait_for_event(&receiver_handle.node, |event| {
             matches!(event, Event::ChannelPending { .. })
         })
@@ -1087,7 +1136,10 @@ mod tests {
 
         let app = router_with_real_lightning(
             config.clone(),
-            Arc::new(LdkNodeLightningAdapter::new(Arc::clone(&receiver_handle), 900)),
+            Arc::new(LdkNodeLightningAdapter::new(
+                Arc::clone(&receiver_handle),
+                900,
+            )),
         );
         let seller_pubkey = test_public_key();
         let buyer_pubkey =
@@ -1144,24 +1196,23 @@ mod tests {
         let invoice = checkout_body["lightning_invoice"]
             .as_str()
             .expect("bolt11 invoice");
-        let parsed_invoice = Bolt11Invoice::from_str(invoice).expect("checkout invoice should parse");
+        let parsed_invoice =
+            Bolt11Invoice::from_str(invoice).expect("checkout invoice should parse");
         payer
             .bolt11_payment()
             .send(&parsed_invoice, None)
             .expect("payer should settle the checkout invoice");
-        wait_for_event(&payer, |event| matches!(event, Event::PaymentSuccessful { .. })).await;
+        wait_for_event(&payer, |event| {
+            matches!(event, Event::PaymentSuccessful { .. })
+        })
+        .await;
         wait_for_event(&receiver_handle.node, |event| {
             matches!(event, Event::PaymentReceived { .. })
         })
         .await;
 
-        let (payment_status, payment_body) = wait_for_payment_confirmation(
-            app.clone(),
-            order_id,
-            &payment_hash,
-            21_000,
-        )
-        .await;
+        let (payment_status, payment_body) =
+            wait_for_payment_confirmation(app.clone(), order_id, &payment_hash, 21_000).await;
         assert_eq!(payment_status, 200);
         assert_eq!(payment_body["state"], "paid");
 
@@ -1369,7 +1420,11 @@ mod tests {
         builder.set_entropy_seed_bytes([seed_byte; WALLET_KEYS_SEED_LEN]);
         builder.set_storage_dir_path(
             env::temp_dir()
-                .join(format!("saturn-ldk-lightning-{}-{}", seed_byte, Uuid::new_v4()))
+                .join(format!(
+                    "saturn-ldk-lightning-{}-{}",
+                    seed_byte,
+                    Uuid::new_v4()
+                ))
                 .display()
                 .to_string(),
         );
@@ -1416,7 +1471,11 @@ mod tests {
                 .as_ref()
                 .expect("electrsd should expose esplora")
         );
-        wait_for_tip_height(&esplora_base_url, start_height.saturating_add(blocks as u32)).await;
+        wait_for_tip_height(
+            &esplora_base_url,
+            start_height.saturating_add(blocks as u32),
+        )
+        .await;
     }
 
     async fn wait_for_tip_height(esplora_base_url: &str, target_height: u32) {
@@ -1450,7 +1509,11 @@ mod tests {
         let url = format!("{}/tx/{txid}", esplora_base_url);
 
         for _ in 0..120 {
-            let response = client.get(&url).send().await.expect("tx poll should succeed");
+            let response = client
+                .get(&url)
+                .send()
+                .await
+                .expect("tx poll should succeed");
             if response.status() == reqwest::StatusCode::OK {
                 return;
             }

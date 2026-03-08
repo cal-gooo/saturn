@@ -566,7 +566,10 @@ mod tests {
             .expect("payment confirm should still succeed");
 
         assert_eq!(response.state, OrderState::Paid);
-        assert_eq!(response.finality, crate::domain::entities::PaymentFinality::Confirmed);
+        assert_eq!(
+            response.finality,
+            crate::domain::entities::PaymentFinality::Confirmed
+        );
 
         let candidates = client
             .candidates
