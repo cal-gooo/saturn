@@ -1,0 +1,15 @@
+{
+  "kind": 17390,
+  "pubkey": "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": 1772976055,
+  "tags": [
+    ["t", "a2ac/v0.1"],
+    ["q", "c6715d3f-10d0-41cc-a84c-5672ecb3c981"],
+    ["o", "44f51738-f92a-4d90-bf52-5da18d77cc21"],
+    ["p", "02cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
+    ["x", "09ff..."]
+  ],
+  "content": "{\"status\":\"quoted\",\"expires_at\":\"2026-03-08T14:20:55Z\"}",
+  "sig": "faux-signature"
+}
+

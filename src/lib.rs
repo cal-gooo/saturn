@@ -1,0 +1,9 @@
+pub mod api;
+pub mod app;
+pub mod domain;
+pub mod errors;
+pub mod nostr;
+pub mod payments;
+pub mod persistence;
+pub mod security;
+pub mod services;

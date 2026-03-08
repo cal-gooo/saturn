@@ -1,0 +1,14 @@
+{
+  "kind": 31390,
+  "pubkey": "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": 1772976000,
+  "tags": [
+    ["d", "merchant-capabilities"],
+    ["t", "a2ac/v0.1"],
+    ["relay", "wss://relay.damus.io"],
+    ["relay", "wss://nos.lol"]
+  ],
+  "content": "{\"protocol\":\"a2ac/0.1\",\"merchant_name\":\"Example Merchant\",\"supported_rails\":[\"lightning\",\"onchain\"],\"quote_ttl_seconds\":300,\"quote_lock_seconds\":180}",
+  "sig": "faux-signature"
+}
+

@@ -1,0 +1,16 @@
+{
+  "kind": 17391,
+  "pubkey": "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": 1772976122,
+  "tags": [
+    ["t", "a2ac/v0.1"],
+    ["o", "44f51738-f92a-4d90-bf52-5da18d77cc21"],
+    ["q", "c6715d3f-10d0-41cc-a84c-5672ecb3c981"],
+    ["r", "lightning"],
+    ["x", "c0ffee..."],
+    ["p", "02cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]
+  ],
+  "content": "{\"finality\":\"settled\",\"amount_sats\":21000,\"receipt_id\":\"7c5d09cc-0d73-4a37-b151-7ab0cf217044\"}",
+  "sig": "faux-signature"
+}
+

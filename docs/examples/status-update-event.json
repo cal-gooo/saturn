@@ -1,0 +1,14 @@
+{
+  "kind": 17392,
+  "pubkey": "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": 1772976200,
+  "tags": [
+    ["t", "a2ac/v0.1"],
+    ["o", "44f51738-f92a-4d90-bf52-5da18d77cc21"],
+    ["s", "fulfilled"],
+    ["p", "02cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]
+  ],
+  "content": "{\"status\":\"fulfilled\",\"updated_at\":\"2026-03-08T14:23:20Z\"}",
+  "sig": "faux-signature"
+}
+
