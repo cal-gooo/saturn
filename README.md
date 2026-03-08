@@ -51,6 +51,8 @@ Original agent-to-agent commerce protocol and Rust reference implementation for 
 
 See [docs/protocol-spec.md](/Users/barry/Documents/New project/a2a-commerce-protocol/docs/protocol-spec.md) and [docs/nostr-events.md](/Users/barry/Documents/New project/a2a-commerce-protocol/docs/nostr-events.md).
 
+Architecture notes live in [docs/architecture.md](/Users/barry/Documents/New project/a2a-commerce-protocol/docs/architecture.md).
+
 ### Phase 2: Code scaffold
 
 The Rust scaffold lives under [src/lib.rs](/Users/barry/Documents/New project/a2a-commerce-protocol/src/lib.rs) and [src/main.rs](/Users/barry/Documents/New project/a2a-commerce-protocol/src/main.rs).
@@ -211,3 +213,10 @@ curl -s "http://127.0.0.1:3000/order/$ORDER_ID" | jq
 ## Open source
 
 The repository is initialized as a fresh Git repository under [a2a-commerce-protocol](/Users/barry/Documents/New project/a2a-commerce-protocol) and ships with the MIT license in [LICENSE](/Users/barry/Documents/New project/a2a-commerce-protocol/LICENSE).
+
+Community and governance files:
+
+- [CONTRIBUTING.md](/Users/barry/Documents/New project/a2a-commerce-protocol/CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](/Users/barry/Documents/New project/a2a-commerce-protocol/CODE_OF_CONDUCT.md)
+- [SECURITY.md](/Users/barry/Documents/New project/a2a-commerce-protocol/SECURITY.md)
+- [SUPPORT.md](/Users/barry/Documents/New project/a2a-commerce-protocol/SUPPORT.md)
