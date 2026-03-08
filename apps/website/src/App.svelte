@@ -1,5 +1,6 @@
 <script>
   import heroArt from "../../../assets/saturn-hero.svg";
+  const docsUrl = "https://shenbaiquan0828.gitbook.io/saturn/";
 
   const featureGroups = [
     {
@@ -99,7 +100,7 @@
 
     <nav class="nav">
       <a href="#features">Features</a>
-      <a href="/docs/">Docs</a>
+      <a href={docsUrl}>Docs</a>
       <a href="https://github.com/cal-gooo/saturn">GitHub</a>
     </nav>
   </header>
@@ -120,7 +121,7 @@
         </p>
 
         <div class="cta-row">
-          <a class="button button-primary" href="/docs/">Read the docs</a>
+          <a class="button button-primary" href={docsUrl}>Read the docs</a>
           <a class="button button-secondary" href="https://github.com/cal-gooo/saturn">
             Explore the repo
           </a>
@@ -239,7 +240,7 @@
             repository references into a single launchpad.
           </p>
         </div>
-        <a class="button button-primary" href="/docs/">Docs</a>
+        <a class="button button-primary" href={docsUrl}>Docs</a>
       </div>
     </section>
   </main>
