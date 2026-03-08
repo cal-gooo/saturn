@@ -1,6 +1,10 @@
-# A2A Commerce Protocol
+# Saturn
 
-Original agent-to-agent commerce protocol and Rust reference implementation for BTC-only settlement with Nostr-native identity, receipts, and relay redundancy.
+<p align="center">
+  <img src="assets/saturn-hero.svg" alt="Stylized Saturn planet banner for the Saturn repository" width="900">
+</p>
+
+Saturn is the Rust reference implementation for A2A Commerce Protocol: BTC-only settlement with Nostr-native identity, receipts, and relay redundancy.
 
 ## Scope
 
@@ -91,7 +95,7 @@ sqlx migrate run
 4. Start server:
 
 ```bash
-cargo run --bin a2a-commerce-server
+cargo run --bin saturn-server
 ```
 
 5. Run tests:

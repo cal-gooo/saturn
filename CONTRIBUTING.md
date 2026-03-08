@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository is the reference implementation for A2A Commerce Protocol v0.1. Changes should preserve three constraints:
+Saturn is the reference implementation for A2A Commerce Protocol v0.1. Changes should preserve three constraints:
 
 - BTC-only settlement
 - Nostr-native identity and receipt model
