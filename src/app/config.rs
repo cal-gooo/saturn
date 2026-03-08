@@ -1,6 +1,7 @@
 use std::{env, str::FromStr};
 
 use secp256k1::{PublicKey, Secp256k1, SecretKey, XOnlyPublicKey};
+use url::Url;
 
 use crate::errors::{ApiError, AppResult};
 
@@ -20,6 +21,10 @@ pub struct AppConfig {
     pub lightning_ldk_esplora_url: String,
     pub lightning_ldk_rgs_url: Option<String>,
     pub lightning_invoice_expiry_seconds: u32,
+    pub coinjoin_backend: String,
+    pub joinstr_sidecar_url: Option<Url>,
+    pub joinstr_sidecar_api_token: Option<String>,
+    pub joinstr_sidecar_timeout_seconds: u64,
     pub nostr_relays: Vec<String>,
     pub quote_ttl_seconds: u64,
     pub quote_lock_seconds: u64,
@@ -83,6 +88,19 @@ impl AppConfig {
                 "APP__LIGHTNING_INVOICE_EXPIRY_SECONDS",
                 900_u32,
             )?,
+            coinjoin_backend: read_string("APP__COINJOIN_BACKEND", "disabled"),
+            joinstr_sidecar_url: read_optional_url(
+                "APP__JOINSTR_SIDECAR_URL",
+                Some("http://127.0.0.1:3011/api/v1/coinjoin/outputs"),
+            )?,
+            joinstr_sidecar_api_token: read_optional_string(
+                "APP__JOINSTR_SIDECAR_API_TOKEN",
+                None,
+            ),
+            joinstr_sidecar_timeout_seconds: read_parse(
+                "APP__JOINSTR_SIDECAR_TIMEOUT_SECONDS",
+                10_u64,
+            )?,
             nostr_relays: read_string("APP__NOSTR_RELAYS", "wss://relay.damus.io,wss://nos.lol")
                 .split(',')
                 .map(str::trim)
@@ -122,6 +140,13 @@ impl AppConfig {
             lightning_ldk_esplora_url: "http://127.0.0.1:3002".into(),
             lightning_ldk_rgs_url: None,
             lightning_invoice_expiry_seconds: 900,
+            coinjoin_backend: "disabled".into(),
+            joinstr_sidecar_url: Some(
+                Url::parse("http://127.0.0.1:3011/api/v1/coinjoin/outputs")
+                    .expect("test Joinstr sidecar URL should parse"),
+            ),
+            joinstr_sidecar_api_token: None,
+            joinstr_sidecar_timeout_seconds: 10,
             nostr_relays: vec!["wss://relay.damus.io".into(), "wss://nos.lol".into()],
             quote_ttl_seconds: 300,
             quote_lock_seconds: 180,
@@ -148,6 +173,15 @@ fn read_optional_string(key: &str, default: Option<&str>) -> Option<String> {
         }
         Err(_) => default.map(str::to_owned),
     }
+}
+
+fn read_optional_url(key: &str, default: Option<&str>) -> AppResult<Option<Url>> {
+    read_optional_string(key, default)
+        .map(|value| {
+            Url::parse(&value)
+                .map_err(|error| ApiError::internal(format!("invalid {key} URL: {error}")))
+        })
+        .transpose()
 }
 
 fn read_parse<T>(key: &str, default: T) -> AppResult<T>

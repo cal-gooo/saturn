@@ -753,6 +753,7 @@ mod tests {
             InMemoryNonceRepository, InMemoryOrderRepository, InMemoryQuoteRepository,
             InMemoryReceiptRepository,
         },
+        privacy::DisabledCoinjoinClient,
         security::signing::{derive_public_key, sign_value},
     };
 
@@ -1539,6 +1540,7 @@ mod tests {
             lightning_adapter,
             Arc::new(MockOnChainAdapter),
             Arc::new(MockNostrPublisher::new(relays)),
+            Arc::new(DisabledCoinjoinClient),
         ))
     }
 
@@ -1553,6 +1555,7 @@ mod tests {
             Arc::new(MockLightningAdapter),
             onchain_adapter,
             Arc::new(MockNostrPublisher::new(relays)),
+            Arc::new(DisabledCoinjoinClient),
         ))
     }
 

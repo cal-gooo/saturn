@@ -8,6 +8,7 @@ use saturn::{
         PostgresNonceRepository, PostgresOrderRepository, PostgresQuoteRepository,
         PostgresReceiptRepository, connect,
     },
+    privacy::build_coinjoin_client,
 };
 use sqlx_core::migrate::Migrator;
 use tokio::net::TcpListener;
@@ -27,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .run(&pool)
         .await?;
     let (lightning_adapter, onchain_adapter) = build_payment_adapters(&config)?;
+    let coinjoin_client = build_coinjoin_client(&config)?;
 
     let state = AppState::new(
         config.clone(),
@@ -37,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lightning_adapter,
         onchain_adapter,
         Arc::new(SdkNostrPublisher::new(&config)?),
+        coinjoin_client,
     );
     let app = build_router(state);
     let listener = TcpListener::bind(&config.server_addr).await?;

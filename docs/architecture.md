@@ -42,11 +42,12 @@ Located in `src/services`.
 
 ### Integration layer
 
-Located in `src/payments`, `src/nostr`, and `src/persistence`.
+Located in `src/payments`, `src/nostr`, `src/persistence`, and `src/privacy`.
 
 - Lightning and on-chain adapter traits
 - Nostr publisher abstraction
 - Postgres and in-memory repositories
+- Optional coinjoin sidecar abstraction for post-settlement privacy workflows
 
 ## Key Design Decisions
 
@@ -62,6 +63,8 @@ The service layer cannot invent arbitrary order states. All transitions route th
 
 The payment and relay traits are designed so Saturn can move from mocks to live backends without changing the API layer. The repo now includes live Nostr publishing plus opt-in `ldk-node` adapters for Lightning and on-chain address generation/verification, while tests still use the mock path for determinism.
 
+The same pattern now applies to treasury privacy integrations: confirmed on-chain settlements can be handed to an optional Joinstr sidecar without coupling CoinJoin concerns to quote, checkout, or payment confirmation semantics.
+
 ### In-memory repositories for fast integration tests
 
 The test harness exercises the full checkout flow without requiring a live database. Postgres remains the runtime persistence target.
@@ -71,4 +74,5 @@ The test harness exercises the full checkout flow without requiring a live datab
 - harden the `ldk-node` path with funded-node and regtest integration coverage
 - replace or extend the on-chain verifier with Bitcoin Core RPC or dedicated indexer support
 - add relay publishing retries and delivery observability around the live Nostr publisher
+- persist Joinstr queue status and round outcomes instead of using best-effort sidecar submission
 - add seller-side fulfillment endpoints without changing the request signing model

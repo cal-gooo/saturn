@@ -1,5 +1,5 @@
 use chrono::Utc;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -19,6 +19,7 @@ use crate::{
     errors::{ApiError, AppResult},
     nostr::experimental_event_kinds,
     payments::{build_receipt_payload, receipt_hash},
+    privacy::CoinjoinCandidate,
 };
 
 pub struct CapabilityService {
@@ -366,6 +367,10 @@ impl PaymentService {
             .insert_receipt(&receipt)
             .await?;
 
+        if envelope.payload.rail == PaymentRail::OnChain {
+            maybe_enqueue_coinjoin_candidate(&self.state, &order, &receipt).await;
+        }
+
         Ok(PaymentConfirmResponse {
             order_id: order.id,
             receipt_id: receipt.id,
@@ -433,5 +438,253 @@ fn settlement_input_into_domain(input: SettlementProofInput) -> SettlementProof 
             amount_sats,
             confirmations,
         },
+    }
+}
+
+async fn maybe_enqueue_coinjoin_candidate(state: &AppState, order: &Order, receipt: &Receipt) {
+    if !state.coinjoin_client.enabled() {
+        return;
+    }
+
+    let candidate = match CoinjoinCandidate::from_confirmed_onchain_order(
+        order,
+        &state.config.merchant_nostr_pubkey,
+        &state.config.lightning_ldk_network,
+        receipt.nostr_event_id.as_deref(),
+    ) {
+        Ok(candidate) => candidate,
+        Err(error) => {
+            warn!(
+                order_id = %order.id,
+                error = %error.message,
+                "skipping Joinstr enqueue because the on-chain settlement could not be normalized"
+            );
+            return;
+        }
+    };
+
+    if let Err(error) = state
+        .coinjoin_client
+        .enqueue_confirmed_output(&candidate)
+        .await
+    {
+        warn!(
+            order_id = %order.id,
+            error = %error.message,
+            "failed to enqueue confirmed on-chain output for Joinstr sidecar"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::PaymentService;
+    use crate::{
+        api::schemas::{PaymentConfirmPayload, SettlementProofInput, SignedEnvelope},
+        app::AppState,
+        domain::entities::{Order, OrderState, PaymentRail},
+        errors::{ApiError, AppResult},
+        privacy::{CoinjoinCandidate, CoinjoinClient},
+    };
+
+    #[derive(Debug, Default)]
+    struct RecordingCoinjoinClient {
+        candidates: Mutex<Vec<CoinjoinCandidate>>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl CoinjoinClient for RecordingCoinjoinClient {
+        async fn enqueue_confirmed_output(&self, candidate: &CoinjoinCandidate) -> AppResult<()> {
+            self.candidates
+                .lock()
+                .expect("coinjoin client lock should work")
+                .push(candidate.clone());
+            if self.fail {
+                Err(ApiError::internal("sidecar unavailable"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn confirmed_onchain_payment_enqueues_coinjoin_candidate() {
+        let mut state = AppState::for_tests();
+        let client = Arc::new(RecordingCoinjoinClient::default());
+        state.coinjoin_client = client.clone();
+
+        let order = pending_onchain_order();
+        state
+            .order_repository
+            .insert_order(&order)
+            .await
+            .expect("order insert should succeed");
+
+        let response = PaymentService::new(state.clone())
+            .confirm_payment(confirmed_onchain_envelope(order.id), "confirm-1".into())
+            .await
+            .expect("payment confirm should succeed");
+
+        assert_eq!(response.state, OrderState::Paid);
+
+        let candidates = client
+            .candidates
+            .lock()
+            .expect("coinjoin client lock should work");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].order_id, order.id);
+        assert_eq!(candidates[0].amount_sats, 21_000);
+        assert_eq!(candidates[0].confirmations, 6);
+    }
+
+    #[tokio::test]
+    async fn coinjoin_sidecar_failure_does_not_fail_payment_confirmation() {
+        let mut state = AppState::for_tests();
+        let client = Arc::new(RecordingCoinjoinClient {
+            candidates: Mutex::new(Vec::new()),
+            fail: true,
+        });
+        state.coinjoin_client = client.clone();
+
+        let order = pending_onchain_order();
+        state
+            .order_repository
+            .insert_order(&order)
+            .await
+            .expect("order insert should succeed");
+
+        let response = PaymentService::new(state.clone())
+            .confirm_payment(confirmed_onchain_envelope(order.id), "confirm-2".into())
+            .await
+            .expect("payment confirm should still succeed");
+
+        assert_eq!(response.state, OrderState::Paid);
+        assert_eq!(response.finality, crate::domain::entities::PaymentFinality::Confirmed);
+
+        let candidates = client
+            .candidates
+            .lock()
+            .expect("coinjoin client lock should work");
+        assert_eq!(candidates.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn lightning_payment_does_not_enqueue_coinjoin_candidate() {
+        let mut state = AppState::for_tests();
+        let client = Arc::new(RecordingCoinjoinClient::default());
+        state.coinjoin_client = client.clone();
+
+        let order = pending_lightning_order();
+        state
+            .order_repository
+            .insert_order(&order)
+            .await
+            .expect("order insert should succeed");
+
+        let response = PaymentService::new(state.clone())
+            .confirm_payment(settled_lightning_envelope(order.id), "confirm-3".into())
+            .await
+            .expect("payment confirm should succeed");
+
+        assert_eq!(response.state, OrderState::Paid);
+        assert!(
+            client
+                .candidates
+                .lock()
+                .expect("coinjoin client lock should work")
+                .is_empty(),
+            "lightning settlements should not be sent to Joinstr"
+        );
+    }
+
+    fn pending_onchain_order() -> Order {
+        Order {
+            id: Uuid::new_v4(),
+            quote_id: Uuid::new_v4(),
+            buyer_pubkey: "buyer".into(),
+            seller_pubkey: "seller".into(),
+            state: OrderState::PaymentPending,
+            selected_rail: Some(PaymentRail::OnChain),
+            checkout_idempotency_key: Some("checkout-1".into()),
+            payment_confirm_idempotency_key: None,
+            lightning_invoice: Some("lnbc21000n1test".into()),
+            lightning_payment_hash: Some("ab".repeat(32)),
+            onchain_address: Some("bcrt1qexampleaddress".into()),
+            payment_amount_sats: Some(21_000),
+            settlement_proof: None,
+            onchain_confirmations: None,
+            last_error_code: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn pending_lightning_order() -> Order {
+        Order {
+            id: Uuid::new_v4(),
+            quote_id: Uuid::new_v4(),
+            buyer_pubkey: "buyer".into(),
+            seller_pubkey: "seller".into(),
+            state: OrderState::PaymentPending,
+            selected_rail: Some(PaymentRail::Lightning),
+            checkout_idempotency_key: Some("checkout-2".into()),
+            payment_confirm_idempotency_key: None,
+            lightning_invoice: Some("lnbc21000n1test".into()),
+            lightning_payment_hash: Some("cd".repeat(32)),
+            onchain_address: None,
+            payment_amount_sats: Some(21_000),
+            settlement_proof: None,
+            onchain_confirmations: None,
+            last_error_code: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn confirmed_onchain_envelope(order_id: Uuid) -> SignedEnvelope<PaymentConfirmPayload> {
+        SignedEnvelope {
+            message_id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            nonce: "nonce-onchain".into(),
+            public_key: "pubkey".into(),
+            signature: "signature".into(),
+            payload: PaymentConfirmPayload {
+                order_id,
+                rail: PaymentRail::OnChain,
+                settlement_proof: SettlementProofInput::OnChain {
+                    txid: "ab".repeat(32),
+                    vout: 1,
+                    amount_sats: 21_000,
+                    confirmations: 6,
+                },
+            },
+        }
+    }
+
+    fn settled_lightning_envelope(order_id: Uuid) -> SignedEnvelope<PaymentConfirmPayload> {
+        SignedEnvelope {
+            message_id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            nonce: "nonce-lightning".into(),
+            public_key: "pubkey".into(),
+            signature: "signature".into(),
+            payload: PaymentConfirmPayload {
+                order_id,
+                rail: PaymentRail::Lightning,
+                settlement_proof: SettlementProofInput::Lightning {
+                    payment_hash: "cd".repeat(32),
+                    preimage: Some("preimage".into()),
+                    settled_at: Utc::now(),
+                    amount_sats: 21_000,
+                },
+            },
+        }
     }
 }
