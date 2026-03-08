@@ -27,7 +27,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/a2a_commerce
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
