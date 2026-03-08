@@ -8,11 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx_core::{
-    error::Error as SqlxError,
-    from_row::FromRow,
-    query::query,
-    query_as::query_as,
-    row::Row,
+    error::Error as SqlxError, from_row::FromRow, query::query, query_as::query_as, row::Row,
 };
 use sqlx_postgres::{PgPool, PgPoolOptions, PgRow};
 use uuid::Uuid;

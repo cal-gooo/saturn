@@ -1,9 +1,9 @@
 use std::{env, time::Duration};
 
-use electrsd::corepc_node::{self, Node as BitcoinD};
 use electrsd::ElectrsD;
+use electrsd::corepc_node::{self, Node as BitcoinD};
 use ldk_node::bitcoin::{
-    address::NetworkUnchecked, Address, Amount, Network as BitcoinNetwork, Txid,
+    Address, Amount, Network as BitcoinNetwork, Txid, address::NetworkUnchecked,
 };
 use reqwest::StatusCode;
 use saturn::{
@@ -120,11 +120,7 @@ fn setup_bitcoind_and_electrsd() -> (BitcoinD, ElectrsD) {
     (bitcoind, electrsd)
 }
 
-async fn generate_blocks_and_wait(
-    rpc: &corepc_node::Client,
-    electrsd: &ElectrsD,
-    blocks: usize,
-) {
+async fn generate_blocks_and_wait(rpc: &corepc_node::Client, electrsd: &ElectrsD, blocks: usize) {
     let start_height = rpc
         .get_blockchain_info()
         .expect("blockchain info should be available")
@@ -146,7 +142,11 @@ async fn generate_blocks_and_wait(
             .as_ref()
             .expect("electrsd should expose esplora")
     );
-    wait_for_tip_height(&esplora_base_url, start_height.saturating_add(blocks as u32)).await;
+    wait_for_tip_height(
+        &esplora_base_url,
+        start_height.saturating_add(blocks as u32),
+    )
+    .await;
 }
 
 async fn wait_for_tip_height(esplora_base_url: &str, target_height: u32) {
@@ -180,7 +180,11 @@ async fn wait_for_esplora_tx(esplora_base_url: &str, txid: &Txid) {
     let url = format!("{}/tx/{txid}", esplora_base_url);
 
     for _ in 0..120 {
-        let response = client.get(&url).send().await.expect("tx poll should succeed");
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .expect("tx poll should succeed");
         if response.status() == StatusCode::OK {
             return;
         }

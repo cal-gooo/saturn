@@ -5,5 +5,6 @@ pub mod errors;
 pub mod nostr;
 pub mod payments;
 pub mod persistence;
+pub mod privacy;
 pub mod security;
 pub mod services;

@@ -22,6 +22,7 @@ use crate::{
         InMemoryNonceRepository, InMemoryOrderRepository, InMemoryQuoteRepository,
         InMemoryReceiptRepository,
     },
+    privacy::{DisabledCoinjoinClient, DynCoinjoinClient},
 };
 
 pub use config::AppConfig;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub lightning_adapter: DynLightningAdapter,
     pub onchain_adapter: DynOnChainAdapter,
     pub nostr_publisher: DynNostrPublisher,
+    pub coinjoin_client: DynCoinjoinClient,
 }
 
 impl AppState {
@@ -49,6 +51,7 @@ impl AppState {
         lightning_adapter: DynLightningAdapter,
         onchain_adapter: DynOnChainAdapter,
         nostr_publisher: DynNostrPublisher,
+        coinjoin_client: DynCoinjoinClient,
     ) -> Self {
         Self {
             config,
@@ -59,6 +62,7 @@ impl AppState {
             lightning_adapter,
             onchain_adapter,
             nostr_publisher,
+            coinjoin_client,
         }
     }
 
@@ -72,6 +76,7 @@ impl AppState {
             lightning_adapter: Arc::new(MockLightningAdapter),
             onchain_adapter: Arc::new(MockOnChainAdapter),
             nostr_publisher: Arc::new(MockNostrPublisher::new(config.nostr_relays.clone())),
+            coinjoin_client: Arc::new(DisabledCoinjoinClient),
             config,
         }
     }

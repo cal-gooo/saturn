@@ -39,6 +39,7 @@ Saturn is the Rust reference implementation for A2A Commerce Protocol: BTC-only 
 │   ├── nostr
 │   ├── payments
 │   ├── persistence
+│   ├── privacy
 │   ├── security
 │   ├── services
 │   ├── errors.rs
@@ -101,6 +102,29 @@ cargo run --bin saturn-server
 To enable the real LDK-backed adapters, set `APP__LIGHTNING_BACKEND=ldk` and/or
 `APP__ONCHAIN_BACKEND=ldk`, then provide the shared LDK seed, storage path, and chain source
 settings in `.env`.
+
+Joinstr is available only as an optional sidecar for post-settlement on-chain privacy. To enable
+it, set `APP__COINJOIN_BACKEND=joinstr_sidecar` and point `APP__JOINSTR_SIDECAR_URL` at a sidecar
+endpoint that accepts `POST` requests with confirmed on-chain outputs. Saturn will enqueue those
+outputs after a successful on-chain payment confirmation; it does not change the checkout flow or
+block buyer settlement if the sidecar is unavailable.
+
+Expected sidecar payload:
+
+```json
+{
+  "order_id": "8b0f2643-e783-4f7a-81d4-52b3559b6d14",
+  "merchant_nostr_pubkey": "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+  "network": "testnet",
+  "address": "tb1q...",
+  "txid": "abc123...",
+  "vout": 1,
+  "amount_sats": 21000,
+  "confirmations": 6,
+  "receipt_event_id": "nostr-event-id",
+  "queued_at": "2026-03-08T15:00:00Z"
+}
+```
 
 5. Run tests:
 

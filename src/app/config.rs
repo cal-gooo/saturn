@@ -1,6 +1,7 @@
 use std::{env, str::FromStr};
 
 use secp256k1::{PublicKey, Secp256k1, SecretKey, XOnlyPublicKey};
+use url::Url;
 
 use crate::errors::{ApiError, AppResult};
 
@@ -20,6 +21,10 @@ pub struct AppConfig {
     pub lightning_ldk_esplora_url: String,
     pub lightning_ldk_rgs_url: Option<String>,
     pub lightning_invoice_expiry_seconds: u32,
+    pub coinjoin_backend: String,
+    pub joinstr_sidecar_url: Option<Url>,
+    pub joinstr_sidecar_api_token: Option<String>,
+    pub joinstr_sidecar_timeout_seconds: u64,
     pub nostr_relays: Vec<String>,
     pub quote_ttl_seconds: u64,
     pub quote_lock_seconds: u64,
@@ -38,8 +43,7 @@ impl AppConfig {
             "APP__MERCHANT_REQUEST_SIGNING_SECRET_KEY",
             "1111111111111111111111111111111111111111111111111111111111111111",
         );
-        let derived_merchant_nostr_pubkey =
-            derive_nostr_pubkey(&merchant_nostr_secret_key)?;
+        let derived_merchant_nostr_pubkey = derive_nostr_pubkey(&merchant_nostr_secret_key)?;
         let merchant_nostr_pubkey = match env::var("APP__MERCHANT_NOSTR_PUBKEY") {
             Ok(value) => normalize_nostr_pubkey(&value)?,
             Err(_) => derived_merchant_nostr_pubkey.clone(),
@@ -66,10 +70,7 @@ impl AppConfig {
                 "APP__LIGHTNING_LDK_SEED_HEX",
                 "33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
             ),
-            lightning_ldk_storage_dir: read_string(
-                "APP__LIGHTNING_LDK_STORAGE_DIR",
-                "./data/ldk",
-            ),
+            lightning_ldk_storage_dir: read_string("APP__LIGHTNING_LDK_STORAGE_DIR", "./data/ldk"),
             lightning_ldk_network: read_string("APP__LIGHTNING_LDK_NETWORK", "testnet"),
             lightning_ldk_esplora_url: read_string(
                 "APP__LIGHTNING_LDK_ESPLORA_URL",
@@ -82,6 +83,16 @@ impl AppConfig {
             lightning_invoice_expiry_seconds: read_parse(
                 "APP__LIGHTNING_INVOICE_EXPIRY_SECONDS",
                 900_u32,
+            )?,
+            coinjoin_backend: read_string("APP__COINJOIN_BACKEND", "disabled"),
+            joinstr_sidecar_url: read_optional_url(
+                "APP__JOINSTR_SIDECAR_URL",
+                Some("http://127.0.0.1:3011/api/v1/coinjoin/outputs"),
+            )?,
+            joinstr_sidecar_api_token: read_optional_string("APP__JOINSTR_SIDECAR_API_TOKEN", None),
+            joinstr_sidecar_timeout_seconds: read_parse(
+                "APP__JOINSTR_SIDECAR_TIMEOUT_SECONDS",
+                10_u64,
             )?,
             nostr_relays: read_string("APP__NOSTR_RELAYS", "wss://relay.damus.io,wss://nos.lol")
                 .split(',')
@@ -122,6 +133,13 @@ impl AppConfig {
             lightning_ldk_esplora_url: "http://127.0.0.1:3002".into(),
             lightning_ldk_rgs_url: None,
             lightning_invoice_expiry_seconds: 900,
+            coinjoin_backend: "disabled".into(),
+            joinstr_sidecar_url: Some(
+                Url::parse("http://127.0.0.1:3011/api/v1/coinjoin/outputs")
+                    .expect("test Joinstr sidecar URL should parse"),
+            ),
+            joinstr_sidecar_api_token: None,
+            joinstr_sidecar_timeout_seconds: 10,
             nostr_relays: vec!["wss://relay.damus.io".into(), "wss://nos.lol".into()],
             quote_ttl_seconds: 300,
             quote_lock_seconds: 180,
@@ -150,6 +168,15 @@ fn read_optional_string(key: &str, default: Option<&str>) -> Option<String> {
     }
 }
 
+fn read_optional_url(key: &str, default: Option<&str>) -> AppResult<Option<Url>> {
+    read_optional_string(key, default)
+        .map(|value| {
+            Url::parse(&value)
+                .map_err(|error| ApiError::internal(format!("invalid {key} URL: {error}")))
+        })
+        .transpose()
+}
+
 fn read_parse<T>(key: &str, default: T) -> AppResult<T>
 where
     T: Copy + FromStr,
@@ -170,12 +197,13 @@ fn normalize_nostr_pubkey(value: &str) -> AppResult<String> {
 
     match bytes.len() {
         32 => {
-            let x_only = XOnlyPublicKey::from_byte_array(bytes.try_into().map_err(|_| {
-                ApiError::internal("APP__MERCHANT_NOSTR_PUBKEY must be 32 bytes")
-            })?)
-            .map_err(|error| {
-                ApiError::internal(format!("invalid APP__MERCHANT_NOSTR_PUBKEY: {error}"))
-            })?;
+            let x_only =
+                XOnlyPublicKey::from_byte_array(bytes.try_into().map_err(|_| {
+                    ApiError::internal("APP__MERCHANT_NOSTR_PUBKEY must be 32 bytes")
+                })?)
+                .map_err(|error| {
+                    ApiError::internal(format!("invalid APP__MERCHANT_NOSTR_PUBKEY: {error}"))
+                })?;
             Ok(hex::encode(x_only.serialize()))
         }
         33 => {
@@ -198,14 +226,12 @@ fn derive_nostr_pubkey(secret_key_hex: &str) -> AppResult<String> {
         ))
     })?;
     let secret_key = SecretKey::from_byte_array(
-        secret_key_bytes.try_into().map_err(|_| {
-            ApiError::internal("APP__MERCHANT_NOSTR_SECRET_KEY must be 32 bytes")
-        })?,
+        secret_key_bytes
+            .try_into()
+            .map_err(|_| ApiError::internal("APP__MERCHANT_NOSTR_SECRET_KEY must be 32 bytes"))?,
     )
     .map_err(|error| {
-        ApiError::internal(format!(
-            "invalid APP__MERCHANT_NOSTR_SECRET_KEY: {error}"
-        ))
+        ApiError::internal(format!("invalid APP__MERCHANT_NOSTR_SECRET_KEY: {error}"))
     })?;
     let secp = Secp256k1::signing_only();
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
