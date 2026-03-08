@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use saturn::{
     app::{AppConfig, AppState, build_router},
-    nostr::MockNostrPublisher,
+    nostr::SdkNostrPublisher,
     payments::{MockLightningAdapter, MockOnChainAdapter},
     persistence::{
         PostgresNonceRepository, PostgresOrderRepository, PostgresQuoteRepository,
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(PostgresNonceRepository::new(pool)),
         Arc::new(MockLightningAdapter),
         Arc::new(MockOnChainAdapter),
-        Arc::new(MockNostrPublisher::new(config.nostr_relays.clone())),
+        Arc::new(SdkNostrPublisher::new(&config)?),
     );
     let app = build_router(state);
     let listener = TcpListener::bind(&config.server_addr).await?;

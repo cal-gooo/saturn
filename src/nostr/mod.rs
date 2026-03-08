@@ -1,18 +1,19 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::Utc;
+use nostr_sdk::prelude::{Client, EventBuilder, Keys, Kind, Tags};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
     api::schemas::NostrReference,
     app::config::AppConfig,
     domain::entities::{Order, PaymentRail, Quote, Receipt},
-    errors::AppResult,
+    errors::{ApiError, AppResult},
 };
 
 pub const CAPABILITY_ANNOUNCEMENT_KIND: u32 = 31_390;
@@ -39,6 +40,154 @@ pub trait NostrPublisher: Send + Sync {
         receipt: &Receipt,
         merchant_pubkey: &str,
     ) -> AppResult<NostrReference>;
+}
+
+pub struct SdkNostrPublisher {
+    client: Client,
+    relays: Vec<String>,
+}
+
+impl SdkNostrPublisher {
+    pub fn new(config: &AppConfig) -> AppResult<Self> {
+        let keys = Keys::parse(&config.merchant_signing_secret_key)
+            .map_err(|error| ApiError::internal(format!("invalid Nostr signer key: {error}")))?;
+        Ok(Self {
+            client: Client::new(keys),
+            relays: config.nostr_relays.clone(),
+        })
+    }
+
+    async fn ensure_relays(&self) -> AppResult<()> {
+        for relay in &self.relays {
+            self.client.add_write_relay(relay).await.map_err(|error| {
+                ApiError::internal(format!("failed to add Nostr relay {relay}: {error}"))
+            })?;
+        }
+
+        self.client.connect().await;
+        self.client.wait_for_connection(Duration::from_secs(5)).await;
+        Ok(())
+    }
+
+    async fn publish_event(
+        &self,
+        kind: u32,
+        tags: Vec<Vec<String>>,
+        content: Value,
+        context: &'static str,
+    ) -> AppResult<NostrReference> {
+        self.ensure_relays().await?;
+
+        let event_kind =
+            Kind::from_u16(u16::try_from(kind).expect("Saturn event kinds fit within u16"));
+        let tags = Tags::parse(tags).map_err(|error| {
+            ApiError::internal(format!("failed to build Nostr tags for {context}: {error}"))
+        })?;
+        let builder = EventBuilder::new(event_kind, content.to_string()).tags(tags);
+        let output = self
+            .client
+            .send_event_builder_to(self.relays.iter().map(String::as_str), builder)
+            .await
+            .map_err(|error| ApiError::internal(format!("failed to publish {context}: {error}")))?;
+        let event_id = output.id().to_string();
+        let success_relays: Vec<String> =
+            output.success.into_iter().map(|relay| relay.to_string()).collect();
+        let failed_relays: Vec<String> = output
+            .failed
+            .into_iter()
+            .map(|(relay, error)| format!("{relay}: {error}"))
+            .collect();
+
+        if success_relays.is_empty() {
+            return Err(ApiError::internal(format!(
+                "failed to publish {context}: no relay accepted the event ({})",
+                failed_relays.join(", ")
+            )));
+        }
+
+        if !failed_relays.is_empty() {
+            warn!(
+                event_id,
+                failures = ?failed_relays,
+                "published Nostr event with partial relay failures"
+            );
+        }
+
+        info!(
+            event_id,
+            relays = ?success_relays,
+            "published Nostr event to configured relays"
+        );
+
+        Ok(NostrReference {
+            kind,
+            event_id,
+            relays: success_relays,
+        })
+    }
+}
+
+#[async_trait]
+impl NostrPublisher for SdkNostrPublisher {
+    async fn publish_capability(&self, config: &AppConfig) -> AppResult<NostrReference> {
+        self.publish_event(
+            CAPABILITY_ANNOUNCEMENT_KIND,
+            vec![
+                vec!["d".into(), "merchant-capabilities".into()],
+                vec!["t".into(), "a2ac/v0.1".into()],
+            ],
+            json!({
+                "protocol": "a2ac/0.1",
+                "merchant_name": config.merchant_name,
+                "merchant_nostr_pubkey": config.merchant_nostr_pubkey,
+                "relays": self.relays.clone(),
+                "supported_rails": ["lightning", "onchain"],
+            }),
+            "capability event",
+        )
+        .await
+    }
+
+    async fn publish_quote_reference(&self, quote: &Quote) -> AppResult<NostrReference> {
+        self.publish_event(
+            QUOTE_REFERENCE_KIND,
+            vec![
+                vec!["t".into(), "a2ac/v0.1".into()],
+                vec!["q".into(), quote.id.to_string()],
+                vec!["o".into(), quote.order_id.to_string()],
+                vec!["p".into(), quote.buyer_pubkey.clone()],
+                vec!["p".into(), quote.seller_pubkey.clone()],
+            ],
+            json!({
+                "status": "quoted",
+                "expires_at": quote.expires_at,
+                "quote_lock_until": quote.quote_lock_until,
+            }),
+            "quote reference",
+        )
+        .await
+    }
+
+    async fn publish_receipt(
+        &self,
+        order: &Order,
+        receipt: &Receipt,
+        _merchant_pubkey: &str,
+    ) -> AppResult<NostrReference> {
+        self.publish_event(
+            PAYMENT_RECEIPT_KIND,
+            vec![
+                vec!["t".into(), "a2ac/v0.1".into()],
+                vec!["o".into(), order.id.to_string()],
+                vec!["q".into(), order.quote_id.to_string()],
+                vec!["r".into(), receipt.rail.to_string()],
+                vec!["x".into(), receipt.receipt_hash.clone()],
+            ],
+            receipt.payload.clone(),
+            "payment receipt",
+        )
+        .await
+    }
 }
 
 #[derive(Debug, Clone)]
