@@ -8,6 +8,7 @@
 - [ ] `cargo fmt --check`
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --all-targets`
+- [ ] `npm run website:build`
 
 ## Protocol Checklist
 
@@ -15,4 +16,3 @@
 - [ ] Nostr event impact reviewed
 - [ ] replay/signature semantics unchanged or documented
 - [ ] migrations included for persistence changes
-

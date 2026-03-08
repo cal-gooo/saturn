@@ -2,4 +2,8 @@
 /.env
 /.sqlx
 Cargo.lock
-
+node_modules/
+apps/website/dist/
+.vercel/
+apps/website/.vercel/
+apps/website/.vercel.bizais.backup/
