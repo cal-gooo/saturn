@@ -4,6 +4,22 @@
   <img src="assets/saturn-hero.svg" alt="Stylized Saturn planet banner for the Saturn repository" width="900">
 </p>
 
+## Donate
+
+Support Saturn directly:
+
+Bitcoin:
+
+```text
+bc1qf5f04hsx72k88hq9kz0ycat45eg5c2uxl4lwsf
+```
+
+Lightning:
+
+```text
+quickzebra13@primal.net
+```
+
 Saturn is the Rust reference implementation for A2A Commerce Protocol: BTC-only settlement with Nostr-native identity, receipts, and relay redundancy.
 
 ## Scope
@@ -119,22 +135,6 @@ The Svelte + Vite site lives in `apps/website`. The landing page is at `/` and t
 landing page is at `/docs/`.
 
 Live landing page: https://saturn-xyz.live
-
-## Donate
-
-Support Saturn directly:
-
-Bitcoin:
-
-```text
-bc1qf5f04hsx72k88hq9kz0ycat45eg5c2uxl4lwsf
-```
-
-Lightning:
-
-```text
-quickzebra13@primal.net
-```
 
 To enable the real LDK-backed adapters, set `APP__LIGHTNING_BACKEND=ldk` and/or
 `APP__ONCHAIN_BACKEND=ldk`, then provide the shared LDK seed, storage path, and chain source
