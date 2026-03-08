@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use a2a_commerce_protocol::{
+use saturn::{
     app::{AppConfig, AppState, build_router},
     nostr::MockNostrPublisher,
     payments::{MockLightningAdapter, MockOnChainAdapter},
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let app = build_router(state);
     let listener = TcpListener::bind(&config.server_addr).await?;
-    info!(addr = %config.server_addr, "starting a2a commerce server");
+    info!(addr = %config.server_addr, "starting saturn server");
     axum::serve(listener, app).await?;
     Ok(())
 }

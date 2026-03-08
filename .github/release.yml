@@ -1,0 +1,27 @@
+changelog:
+  categories:
+    - title: Breaking Changes
+      labels:
+        - breaking-change
+    - title: Protocol
+      labels:
+        - protocol
+    - title: API
+      labels:
+        - api
+    - title: Security
+      labels:
+        - security
+    - title: Payments
+      labels:
+        - payments
+    - title: Persistence
+      labels:
+        - persistence
+    - title: Maintenance
+      labels:
+        - chore
+        - dependencies
+    - title: Other Changes
+      labels: []
+

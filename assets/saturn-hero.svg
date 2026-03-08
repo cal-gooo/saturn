@@ -1,0 +1,98 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Saturn project banner</title>
+  <desc id="desc">A stylized illustration of Saturn with gold rings over a deep space background for the Saturn repository README.</desc>
+  <defs>
+    <linearGradient id="space" x1="120" y1="60" x2="1060" y2="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#081120"/>
+      <stop offset="0.45" stop-color="#13233F"/>
+      <stop offset="1" stop-color="#04070D"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(618 318) rotate(90) scale(210 220)">
+      <stop offset="0" stop-color="#FDE7B2" stop-opacity="0.9"/>
+      <stop offset="0.45" stop-color="#F0B86B" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#F0B86B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="planet" x1="448" y1="184" x2="766" y2="466" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F9E1AF"/>
+      <stop offset="0.35" stop-color="#D9A35E"/>
+      <stop offset="0.7" stop-color="#A96C39"/>
+      <stop offset="1" stop-color="#724222"/>
+    </linearGradient>
+    <linearGradient id="planetShade" x1="466" y1="200" x2="742" y2="444" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF2D3" stop-opacity="0.85"/>
+      <stop offset="0.32" stop-color="#FFF2D3" stop-opacity="0"/>
+      <stop offset="0.75" stop-color="#5B3116" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#2B1409" stop-opacity="0.36"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="286" y1="314" x2="940" y2="314" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C38E47" stop-opacity="0"/>
+      <stop offset="0.14" stop-color="#EFC97C" stop-opacity="0.9"/>
+      <stop offset="0.48" stop-color="#FFF1C7"/>
+      <stop offset="0.82" stop-color="#D39E57" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#A56D30" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ringBack" x1="300" y1="326" x2="926" y2="302" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7A5025" stop-opacity="0"/>
+      <stop offset="0.24" stop-color="#A56B33" stop-opacity="0.68"/>
+      <stop offset="0.5" stop-color="#C78D4A" stop-opacity="0.82"/>
+      <stop offset="0.78" stop-color="#9E632A" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#6E451F" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blurSoft" x="227" y="126" width="782" height="394" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="28" fill="url(#space)"/>
+  <circle cx="618" cy="318" r="210" fill="url(#glow)"/>
+
+  <g fill="#FFF6D9" opacity="0.92">
+    <circle cx="148" cy="132" r="3.6"/>
+    <circle cx="220" cy="206" r="2.4"/>
+    <circle cx="324" cy="100" r="2.8"/>
+    <circle cx="456" cy="146" r="2.2"/>
+    <circle cx="892" cy="104" r="3.4"/>
+    <circle cx="998" cy="176" r="2.6"/>
+    <circle cx="1058" cy="124" r="2.2"/>
+    <circle cx="906" cy="486" r="3.1"/>
+    <circle cx="1018" cy="420" r="2.5"/>
+    <circle cx="158" cy="456" r="2.9"/>
+    <circle cx="244" cy="530" r="2.3"/>
+    <circle cx="410" cy="502" r="1.8"/>
+    <circle cx="780" cy="540" r="2.1"/>
+    <circle cx="1102" cy="498" r="2.4"/>
+  </g>
+
+  <g stroke="#FFF6D9" stroke-linecap="round" opacity="0.78">
+    <path d="M739 150L739 162" stroke-width="2"/>
+    <path d="M733 156H745" stroke-width="2"/>
+    <path d="M166 286L166 296" stroke-width="1.8"/>
+    <path d="M161 291H171" stroke-width="1.8"/>
+    <path d="M970 290L970 304" stroke-width="2"/>
+    <path d="M963 297H977" stroke-width="2"/>
+  </g>
+
+  <g filter="url(#blurSoft)" opacity="0.55">
+    <ellipse cx="618" cy="318" rx="326" ry="120" transform="rotate(-10 618 318)" fill="url(#ringBack)"/>
+  </g>
+
+  <ellipse cx="618" cy="318" rx="312" ry="88" transform="rotate(-10 618 318)" fill="none" stroke="url(#ring)" stroke-width="26"/>
+  <ellipse cx="618" cy="318" rx="274" ry="69" transform="rotate(-10 618 318)" fill="none" stroke="url(#ring)" stroke-opacity="0.55" stroke-width="10"/>
+
+  <circle cx="618" cy="318" r="148" fill="url(#planet)"/>
+  <circle cx="618" cy="318" r="148" fill="url(#planetShade)"/>
+
+  <g opacity="0.34" stroke="#7A4A27" stroke-width="10">
+    <path d="M495 258C552 286 679 286 741 250"/>
+    <path d="M478 308C559 335 677 334 758 304"/>
+    <path d="M492 356C568 383 671 379 740 348"/>
+  </g>
+
+  <path d="M424 300C482 331 553 343 620 342C704 341 785 318 840 282" stroke="#FFF5D4" stroke-opacity="0.52" stroke-width="20" stroke-linecap="round"/>
+  <path d="M430 344C490 370 558 383 625 383C700 383 773 366 832 339" stroke="#714224" stroke-opacity="0.2" stroke-width="16" stroke-linecap="round"/>
+
+  <g opacity="0.92">
+    <path d="M147 516C225 462 302 432 400 418" stroke="#86D9FF" stroke-opacity="0.32" stroke-width="3"/>
+    <path d="M811 191C855 162 908 148 968 147" stroke="#FFE29C" stroke-opacity="0.28" stroke-width="2.6"/>
+  </g>
+</svg>

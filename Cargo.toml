@@ -1,17 +1,17 @@
 [package]
-name = "a2a-commerce-protocol"
+name = "saturn"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "A2A Commerce Protocol v0.1 reference implementation for BTC-only agent commerce over Axum and Nostr."
-repository = "https://example.com/a2a-commerce-protocol"
+description = "Saturn is the reference implementation for A2A Commerce Protocol v0.1 over Axum and Nostr."
+repository = "https://github.com/cal-gooo/saturn"
 
 [lib]
-name = "a2a_commerce_protocol"
+name = "saturn"
 path = "src/lib.rs"
 
 [[bin]]
-name = "a2a-commerce-server"
+name = "saturn-server"
 path = "src/main.rs"
 
 [dependencies]

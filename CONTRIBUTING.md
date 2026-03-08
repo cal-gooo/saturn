@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository is the reference implementation for A2A Commerce Protocol v0.1. Changes should preserve three constraints:
+Saturn is the reference implementation for A2A Commerce Protocol v0.1. Changes should preserve three constraints:
 
 - BTC-only settlement
 - Nostr-native identity and receipt model
@@ -33,7 +33,7 @@ cargo test --all-targets
 
 ## Change Expectations
 
-- Keep protocol changes documented in [docs/protocol-spec.md](/Users/barry/Documents/New%20project/a2a-commerce-protocol/docs/protocol-spec.md).
+- Keep protocol changes documented in [docs/protocol-spec.md](docs/protocol-spec.md).
 - Add or update tests for signing, replay prevention, state transitions, and checkout flows when behavior changes.
 - Prefer additive protocol evolution over breaking wire-format changes.
 - Keep Nostr relay payloads free of PII.
@@ -50,4 +50,3 @@ cargo test --all-targets
 
 - Use imperative commit messages.
 - Avoid mixing refactors with behavior changes unless the refactor is required for the fix.
-
