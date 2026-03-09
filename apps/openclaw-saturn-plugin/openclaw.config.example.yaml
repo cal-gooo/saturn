@@ -1,0 +1,28 @@
+plugins:
+  load:
+    paths:
+      - ./apps/openclaw-saturn-plugin
+  entries:
+    openclaw-saturn-plugin:
+      enabled: true
+      config:
+        saturnBaseUrl: "http://127.0.0.1:3000"
+        requestSigningSecretKey: "2222222222222222222222222222222222222222222222222222222222222222"
+        requestTimeoutMs: 15000
+        defaultCallbackRelays:
+          - "wss://relay.damus.io"
+          - "wss://nos.lol"
+        defaultSettlementPreference: "lightning_with_onchain_fallback"
+        defaultSelectedRail: "lightning"
+
+agents:
+  list:
+    - id: saturn-agent
+      llm: openai/gpt-5
+      tools:
+        allow:
+          - openclaw-saturn-plugin.saturn_get_capabilities
+          - openclaw-saturn-plugin.saturn_create_quote
+          - openclaw-saturn-plugin.saturn_create_checkout
+          - openclaw-saturn-plugin.saturn_confirm_payment
+          - openclaw-saturn-plugin.saturn_get_order
