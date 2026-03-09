@@ -1,0 +1,59 @@
+{
+  "id": "openclaw-saturn-plugin",
+  "name": "Saturn Commerce",
+  "version": "0.1.0",
+  "description": "Use Saturn as a BTC-commerce provider from OpenClaw tools.",
+  "author": {
+    "name": "Saturn"
+  },
+  "license": "MIT",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "saturnBaseUrl": {
+        "type": "string",
+        "format": "uri",
+        "description": "Base URL for Saturn API, e.g. https://saturn.example.com"
+      },
+      "requestSigningSecretKey": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{64}$",
+        "description": "Saturn request signing secret (32-byte secp256k1 key as hex)."
+      },
+      "requestTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 15000,
+        "description": "HTTP timeout for Saturn requests in milliseconds."
+      },
+      "defaultCallbackRelays": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional default callback relays for quote creation."
+      },
+      "defaultSettlementPreference": {
+        "type": "string",
+        "enum": ["lightning_only", "lightning_with_onchain_fallback"],
+        "default": "lightning_with_onchain_fallback"
+      },
+      "defaultSelectedRail": {
+        "type": "string",
+        "enum": ["lightning", "onchain"],
+        "default": "lightning"
+      }
+    },
+    "required": ["saturnBaseUrl", "requestSigningSecretKey"],
+    "additionalProperties": false
+  },
+  "uiHints": {
+    "fieldLabels": {
+      "saturnBaseUrl": "Saturn Base URL",
+      "requestSigningSecretKey": "Saturn Request Signing Secret",
+      "requestTimeoutMs": "HTTP Timeout (ms)",
+      "defaultCallbackRelays": "Default Callback Relays",
+      "defaultSettlementPreference": "Default Settlement Preference",
+      "defaultSelectedRail": "Default Checkout Rail"
+    },
+    "sensitiveFields": ["requestSigningSecretKey"]
+  }
+}

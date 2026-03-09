@@ -1,0 +1,20 @@
+{
+  "name": "openclaw-saturn-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw agent-tools plugin for Saturn commerce APIs",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "openclaw.extensions": {
+    "saturn": "./index.js"
+  },
+  "scripts": {
+    "check": "node --check index.js"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.7"
+  }
+}
