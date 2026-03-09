@@ -4,9 +4,9 @@ use uuid::Uuid;
 
 use crate::{
     api::schemas::{
-        CapabilitiesResponse, CheckoutIntentPayload, CheckoutIntentResponse, OrderResponse,
-        PaymentConfirmPayload, PaymentConfirmResponse, QuoteRequestPayload, QuoteResponse,
-        SettlementProofInput, SignedEnvelope,
+        CapabilitiesResponse, CheckoutIntentPayload, CheckoutIntentResponse, FulfillOrderPayload,
+        OrderResponse, PaymentConfirmPayload, PaymentConfirmResponse, QuoteRequestPayload,
+        QuoteResponse, SettlementProofInput, SignedEnvelope,
     },
     app::AppState,
     domain::{
@@ -397,10 +397,33 @@ impl OrderService {
             .get_order(order_id)
             .await?
             .ok_or_else(|| ApiError::resource_not_found("order"))?;
+        self.order_response_from_order(order).await
+    }
+
+    #[instrument(skip_all, fields(order_id = %envelope.payload.order_id))]
+    pub async fn fulfill_order(
+        &self,
+        envelope: SignedEnvelope<FulfillOrderPayload>,
+    ) -> AppResult<OrderResponse> {
+        let mut order = self
+            .state
+            .order_repository
+            .get_order(envelope.payload.order_id)
+            .await?
+            .ok_or_else(|| ApiError::resource_not_found("order"))?;
+        ensure_transition(order.state, OrderState::Fulfilled)?;
+        order.state = OrderState::Fulfilled;
+        order.updated_at = Utc::now();
+        self.state.order_repository.update_order(&order).await?;
+        info!(order_id = %order.id, "order marked fulfilled");
+        self.order_response_from_order(order).await
+    }
+
+    async fn order_response_from_order(&self, order: Order) -> AppResult<OrderResponse> {
         let receipt = self
             .state
             .receipt_repository
-            .get_receipt_by_order_id(order_id)
+            .get_receipt_by_order_id(order.id)
             .await?;
 
         Ok(OrderResponse {

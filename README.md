@@ -95,6 +95,7 @@ Endpoints:
 - `POST /quote`
 - `POST /checkout-intent`
 - `POST /payment/confirm`
+- `POST /order/:id/fulfill`
 - `GET /order/:id`
 
 ### Phase 4: Run + test

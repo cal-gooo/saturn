@@ -108,6 +108,13 @@ pub fn build_router(state: AppState) -> Router {
                 crate::security::middleware::signed_request_middleware,
             )),
         )
+        .route(
+            "/order/{id}/fulfill",
+            post(handlers::post_fulfill_order).route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                crate::security::middleware::signed_request_middleware,
+            )),
+        )
         .route("/order/{id}", get(handlers::get_order))
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::new(correlation_header.clone()))

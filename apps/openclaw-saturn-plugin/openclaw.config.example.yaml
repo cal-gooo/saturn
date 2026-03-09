@@ -26,3 +26,4 @@ agents:
           - openclaw-saturn-plugin.saturn_create_checkout
           - openclaw-saturn-plugin.saturn_confirm_payment
           - openclaw-saturn-plugin.saturn_get_order
+          - openclaw-saturn-plugin.saturn_fulfill_order

@@ -9,6 +9,7 @@ Use Saturn as an OpenClaw tool provider for quote, checkout, and payment confirm
 - `saturn_create_checkout`
 - `saturn_confirm_payment`
 - `saturn_get_order`
+- `saturn_fulfill_order`
 
 ## Install in OpenClaw
 
@@ -56,6 +57,7 @@ agents:
           - openclaw-saturn-plugin.saturn_create_checkout
           - openclaw-saturn-plugin.saturn_confirm_payment
           - openclaw-saturn-plugin.saturn_get_order
+          - openclaw-saturn-plugin.saturn_fulfill_order
 ```
 
 ## Saturn Signing Compatibility

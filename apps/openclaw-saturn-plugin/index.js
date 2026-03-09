@@ -378,4 +378,30 @@ export default function registerSaturnTools(api) {
     },
     { optional: true }
   );
+  api.registerTool(
+    {
+      name: "saturn_fulfill_order",
+      description: "Mark a paid Saturn order as fulfilled.",
+      parameters: {
+        type: "object",
+        properties: {
+          order_id: { type: "string" }
+        },
+        required: ["order_id"],
+        additionalProperties: false
+      },
+      async execute(_id, params) {
+        const pluginConfig = getPluginConfig(api);
+        const orderId = String(params.order_id);
+        const payload = { order_id: orderId };
+        const response = await saturnSignedPost(
+          pluginConfig,
+          `/order/${orderId}/fulfill`,
+          payload
+        );
+        return textResult(response);
+      }
+    },
+    { optional: true }
+  );
 }
