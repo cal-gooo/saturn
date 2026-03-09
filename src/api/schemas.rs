@@ -53,6 +53,11 @@ pub struct PaymentConfirmPayload {
     pub settlement_proof: SettlementProofInput,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Validate)]
+pub struct FulfillOrderPayload {
+    pub order_id: Uuid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SettlementProofInput {

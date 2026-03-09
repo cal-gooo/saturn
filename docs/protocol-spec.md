@@ -233,6 +233,31 @@ Read endpoint returning:
 - `payment_status`
 - `receipt_refs[]`
 
+### 9.6 `POST /order/:id/fulfill`
+
+Signed request. Purpose:
+
+- perform the seller-side fulfillment transition
+
+Payload fields:
+
+- `order_id` (MUST match the path id)
+
+Behavior:
+
+- validates signed payload and path/body order id consistency
+- transitions `paid -> fulfilled`
+- rejects other states with `state_transition_invalid`
+
+Response fields:
+
+- `order_id`
+- `quote_id`
+- `state = fulfilled`
+- `selected_rail`
+- `payment_amount_sats`
+- `receipt_ids[]`
+
 ## 10. Error Codes
 
 Structured API errors:
@@ -309,4 +334,3 @@ Capability events SHOULD use a deterministic `d` tag so the latest merchant docu
 - persist replay nonces and receipts
 - return structured errors with correlation IDs
 - trace all state mutations with order and quote identifiers
-

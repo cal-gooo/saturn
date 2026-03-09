@@ -8,9 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     api::schemas::{
-        CapabilitiesResponse, CheckoutIntentPayload, CheckoutIntentResponse, OrderResponse,
-        PaymentConfirmPayload, PaymentConfirmResponse, QuoteRequestPayload, QuoteResponse,
-        SignedEnvelope, parse_json, validate_payload,
+        CapabilitiesResponse, CheckoutIntentPayload, CheckoutIntentResponse, FulfillOrderPayload,
+        OrderResponse, PaymentConfirmPayload, PaymentConfirmResponse, QuoteRequestPayload,
+        QuoteResponse, SignedEnvelope, parse_json, validate_payload,
     },
     app::AppState,
     errors::{ApiError, AppResult},
@@ -85,5 +85,23 @@ pub async fn get_order(
     Path(order_id): Path<Uuid>,
 ) -> AppResult<Json<OrderResponse>> {
     let response = OrderService::new(state).get_order(order_id).await?;
+    Ok(Json(response))
+}
+
+pub async fn post_fulfill_order(
+    State(state): State<AppState>,
+    Path(order_id): Path<Uuid>,
+    Extension(_verified): Extension<VerifiedRequestContext>,
+    Json(raw): Json<Value>,
+) -> AppResult<Json<OrderResponse>> {
+    let envelope: SignedEnvelope<FulfillOrderPayload> = parse_json(raw)?;
+    validate_payload(&envelope.payload)?;
+    if envelope.payload.order_id != order_id {
+        return Err(ApiError::bad_request(
+            "order_id in request path must match signed payload",
+        ));
+    }
+
+    let response = OrderService::new(state).fulfill_order(envelope).await?;
     Ok(Json(response))
 }
