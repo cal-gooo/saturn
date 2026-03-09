@@ -378,7 +378,6 @@ export default function registerSaturnTools(api) {
     },
     { optional: true }
   );
-
   api.registerTool(
     {
       name: "saturn_fulfill_order",
