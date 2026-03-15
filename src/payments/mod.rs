@@ -769,7 +769,9 @@ mod tests {
         http::{Method, Request},
     };
     use chrono::{TimeZone, Utc};
+    #[cfg(unix)]
     use electrsd::ElectrsD;
+    #[cfg(unix)]
     use electrsd::corepc_node::{self, Node as BitcoinD};
     use http_body_util::BodyExt;
     use ldk_node::{
@@ -946,6 +948,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "requires downloaded bitcoind/electrs binaries and a live regtest environment"]
     async fn ldk_lightning_adapter_round_trips_real_payment() {
@@ -1073,6 +1076,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "requires downloaded bitcoind/electrs binaries and a live regtest environment"]
     async fn saturn_router_completes_real_lightning_checkout() {
@@ -1249,6 +1253,7 @@ mod tests {
         assert_eq!(order_body["quote_id"], quote_id);
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "requires downloaded bitcoind/electrs binaries and a live regtest environment"]
     async fn saturn_router_completes_real_onchain_checkout() {
@@ -1381,6 +1386,7 @@ mod tests {
         assert_eq!(order_body["quote_id"], quote_id);
     }
 
+    #[cfg(unix)]
     fn setup_bitcoind_and_electrsd() -> (BitcoinD, ElectrsD) {
         let bitcoind_exe = env::var("BITCOIND_EXE")
             .ok()
@@ -1464,6 +1470,7 @@ mod tests {
         SocketAddress::from_str(&address.to_string()).expect("socket address should parse")
     }
 
+    #[cfg(unix)]
     async fn generate_blocks_and_wait(
         rpc: &corepc_node::Client,
         electrsd: &ElectrsD,
