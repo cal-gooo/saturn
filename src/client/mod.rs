@@ -155,8 +155,7 @@ impl SaturnClient {
         });
 
         let url = format!("{}/checkout-intent", self.base_url);
-        self.signed_post(&url, payload, Some(idempotency_key))
-            .await
+        self.signed_post(&url, payload, Some(idempotency_key)).await
     }
 
     pub async fn confirm_payment(
@@ -178,8 +177,7 @@ impl SaturnClient {
         });
 
         let url = format!("{}/payment/confirm", self.base_url);
-        self.signed_post(&url, payload, Some(idempotency_key))
-            .await
+        self.signed_post(&url, payload, Some(idempotency_key)).await
     }
 
     pub async fn fulfill_order(&self, order_id: Uuid) -> ClientResult<OrderResponse> {
@@ -239,10 +237,7 @@ async fn parse_response<T: DeserializeOwned>(response: reqwest::Response) -> Cli
                 }
             }
         }
-        Err(ClientError::Http {
-            status,
-            body,
-        })
+        Err(ClientError::Http { status, body })
     }
 }
 
@@ -260,7 +255,10 @@ mod tests {
 
         let pubkey = client.public_key_hex().expect("should derive public key");
         assert!(!pubkey.is_empty());
-        assert!(pubkey.len() == 66, "compressed public key should be 33 bytes / 66 hex chars");
+        assert!(
+            pubkey.len() == 66,
+            "compressed public key should be 33 bytes / 66 hex chars"
+        );
     }
 
     #[test]

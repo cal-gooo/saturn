@@ -8,15 +8,12 @@ use saturn::{
     domain::entities::{LineItem, PaymentRail, SettlementPreference},
 };
 
-const TEST_SECRET_KEY: &str =
-    "1111111111111111111111111111111111111111111111111111111111111111";
+const TEST_SECRET_KEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
 async fn start_server() -> String {
     let state = AppState::for_tests();
     let router = build_router(state);
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("should bind");
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("should bind");
     let addr = listener.local_addr().expect("should have local addr");
     let base_url = format!("http://{addr}");
     tokio::spawn(async move {
@@ -66,10 +63,7 @@ async fn client_full_happy_path() {
         .await
         .expect("quote should succeed");
     assert_eq!(quote.total_sats, 21_000);
-    assert_eq!(
-        quote.state,
-        saturn::domain::entities::OrderState::Quoted
-    );
+    assert_eq!(quote.state, saturn::domain::entities::OrderState::Quoted);
 
     // 3. Checkout
     let checkout = client
@@ -104,10 +98,7 @@ async fn client_full_happy_path() {
         )
         .await
         .expect("payment confirm should succeed");
-    assert_eq!(
-        payment.state,
-        saturn::domain::entities::OrderState::Paid
-    );
+    assert_eq!(payment.state, saturn::domain::entities::OrderState::Paid);
 
     // 5. Fulfill
     let fulfilled = client
@@ -124,10 +115,7 @@ async fn client_full_happy_path() {
         .get_order(checkout.order_id)
         .await
         .expect("get order should succeed");
-    assert_eq!(
-        order.state,
-        saturn::domain::entities::OrderState::Fulfilled
-    );
+    assert_eq!(order.state, saturn::domain::entities::OrderState::Fulfilled);
     assert_eq!(order.quote_id, quote.quote_id);
 }
 
