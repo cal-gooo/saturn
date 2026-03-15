@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use std::{env, time::Duration};
 
 use electrsd::ElectrsD;
