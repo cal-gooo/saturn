@@ -227,15 +227,15 @@ async fn parse_response<T: DeserializeOwned>(response: reqwest::Response) -> Cli
         serde_json::from_str(&body).map_err(ClientError::Json)
     } else {
         let body = response.text().await?;
-        if let Ok(wrapper) = serde_json::from_str::<Value>(&body) {
-            if let Some(error_obj) = wrapper.get("error") {
-                if let Ok(api_error) = serde_json::from_value::<ClientApiError>(error_obj.clone()) {
-                    return Err(ClientError::Api {
-                        status,
-                        error: api_error,
-                    });
-                }
-            }
+        if let Ok(wrapper) = serde_json::from_str::<Value>(&body)
+            && let Some(error_obj) = wrapper.get("error")
+            && let Ok(api_error) =
+                serde_json::from_value::<ClientApiError>(error_obj.clone())
+        {
+            return Err(ClientError::Api {
+                status,
+                error: api_error,
+            });
         }
         Err(ClientError::Http { status, body })
     }
